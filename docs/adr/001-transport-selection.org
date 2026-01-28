@@ -1,20 +1,22 @@
-# ADR-001: Transport Selection
+#+TITLE: ADR-001: Transport Selection
+#+DATE: 2025-01-28
+#+STATUS: Accepted
 
-## Status
+* Status
 
 Accepted
 
-## Date
+* Date
 
 2025-01-28
 
-## Context
+* Context
 
 We need to coordinate AI agents across repositories/worktrees on the same machine. Primary use case: test agent signals app agent when tests complete (~2 messages/day).
 
-## Options Considered
+* Options Considered
 
-### Option 1: Enterprise Message Bus
+** Option 1: Enterprise Message Bus
 
 - 6 Kafka brokers (HA)
 - 3-node ZooKeeper ensemble (or KRaft)
@@ -25,47 +27,47 @@ We need to coordinate AI agents across repositories/worktrees on the same machin
 - Prometheus + Grafana (observability)
 - Jaeger (distributed tracing)
 
-**Estimated cost**: $847/month
-**Ops burden**: High (dedicated platform team recommended)
-**Resume impact**: Excellent
+*Estimated cost*: $847/month
+*Ops burden*: High (dedicated platform team recommended)
+*Resume impact*: Excellent
 
-### Option 2: Write JSON to a Folder
+** Option 2: Write JSON to a Folder
 
-```bash
+#+begin_src bash
 echo '{"done":true}' > ~/.aq/channels/app/requests/req_001.json
-```
+#+end_src
 
-**Estimated cost**: $0
-**Ops burden**: `ls`
-**Resume impact**: Negligible
+*Estimated cost*: $0
+*Ops burden*: =ls=
+*Resume impact*: Negligible
 
-## Decision
+* Decision
 
 Option 2.
 
-## Rationale
+* Rationale
 
-- The failure mode is "I can literally `ls` the queue and see what's stuck"
-- Debuggable with `cat` and `jq`
+- The failure mode is "I can literally =ls= the queue and see what's stuck"
+- Debuggable with =cat= and =jq=
 - Works from any language that can write files
 - Survives restarts (it's just files)
 - No daemon to babysit
 - Polling at 100ms is fine for "tests finished"
 
-## Consequences
+* Consequences
 
 - LinkedIn will not be impressed
 - Cannot attend KafkaSummit as a speaker
 - Will need to find other ways to mass overkill in Q3
 
-## Observability Gap (Accepted Risk)
+* Observability Gap (Accepted Risk)
 
-We lack distributed tracing for the 47-character journey from `requests/` to `processing/`. We may never know if a message briefly paused to contemplate existence between directories.
+We lack distributed tracing for the 47-character journey from =requests/= to =processing/=. We may never know if a message briefly paused to contemplate existence between directories.
 
 Will revisit if we scale to 3 messages/day.
 
-## References
+* References
 
-- [Efrit queue system](https://github.com/steveyegge/efrit)
-- [Unix spool pattern](https://en.wikipedia.org/wiki/Spooling)
+- [[https://github.com/steveyegge/efrit][Efrit queue system]]
+- [[https://en.wikipedia.org/wiki/Spooling][Unix spool pattern]]
 - The look on someone's face when you say "it's a folder" and they wait for the rest of the sentence
