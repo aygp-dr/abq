@@ -1,0 +1,1181 @@
+#+TITLE: Agent Bus Specification
+#+AUTHOR: JW
+#+DATE: 2025-01-28
+#+PROPERTY: header-args :mkdirp t
+#+PROPERTY: header-args:python :python python3
+#+PROPERTY: header-args:shell :shebang "#!/usr/bin/env bash"
+#+STARTUP: overview
+
+* Overview
+
+Agent Bus (=aq= - agent queue) is a minimal file-based message bus for coordinating AI agents across repositories, worktrees, and processes. Inspired by Efrit's queue system but generalized for any agent-to-agent communication.
+
+** Design Principles
+
+- *Filesystem as transport* - no daemons, no brokers, just JSON files
+- *Git-aware addressing* - agents identified by org/repo/branch or worktree path
+- *Zero dependencies for sending* - any process that can write JSON can participate
+- *Minimal watcher* - single Python/Ruby process polls directories
+- *Tangleable* - entire implementation lives in this org file
+
+** Architecture
+
+#+begin_src mermaid :file images/architecture.png :exports results
+graph TB
+    subgraph "Agent Bus (~/.aq)"
+        direction TB
+        R[registry.json]
+        subgraph "channels/"
+            C1[test-runner/]
+            C2[app-agent/]
+            C3[broadcast/]
+        end
+        subgraph "agents/"
+            A1[github.com/org/repo/main/]
+            A2[github.com/org/repo/feature-x/]
+        end
+    end
+    
+    subgraph "Worktree 1: main"
+        CC1[Claude Code Agent]
+    end
+    
+    subgraph "Worktree 2: feature-x"  
+        CC2[Claude Code Agent]
+    end
+    
+    CC1 -->|"aq send"| C1
+    C1 -->|"aq watch"| CC2
+    CC2 -->|"aq send"| C2
+    C2 -->|"aq watch"| CC1
+#+end_src
+
+** Message Flow
+
+#+begin_src mermaid :file images/message-flow.png :exports results
+sequenceDiagram
+    participant T as Test Agent
+    participant Q as ~/.aq/channels/
+    participant A as App Agent
+    
+    T->>Q: write request JSON to requests/
+    Note over Q: req_001.json
+    A->>Q: poll requests/
+    Q->>A: read & move to processing/
+    A->>A: execute command
+    A->>Q: write response to responses/
+    Note over Q: req_001.json
+    T->>Q: poll responses/
+    Q->>T: read & archive
+#+end_src
+
+* Installation
+
+** Directory Structure
+
+#+begin_src shell :tangle ~/.local/bin/aq-init :shebang "#!/usr/bin/env bash"
+#!/usr/bin/env bash
+# aq-init - Initialize agent bus directory structure
+set -euo pipefail
+
+AQ_HOME="${AQ_HOME:-$HOME/.aq}"
+
+mkdir -p "$AQ_HOME"/{channels,agents,logs}
+mkdir -p "$AQ_HOME"/channels/broadcast/{requests,responses,processing,archive}
+
+# Initialize registry if not exists
+if [[ ! -f "$AQ_HOME/registry.json" ]]; then
+    cat > "$AQ_HOME/registry.json" << 'EOF'
+{
+  "version": "1.0.0",
+  "created": "'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'",
+  "agents": {},
+  "channels": {
+    "broadcast": {
+      "type": "pubsub",
+      "description": "Global broadcast channel"
+    }
+  }
+}
+EOF
+fi
+
+echo "Agent bus initialized at $AQ_HOME"
+#+end_src
+
+** Create Channel
+
+#+begin_src shell :tangle ~/.local/bin/aq-channel :shebang "#!/usr/bin/env bash"
+#!/usr/bin/env bash
+# aq-channel - Create or manage channels
+set -euo pipefail
+
+AQ_HOME="${AQ_HOME:-$HOME/.aq}"
+ACTION="${1:-}"
+CHANNEL="${2:-}"
+
+usage() {
+    echo "Usage: aq-channel <create|list|rm> [channel-name]"
+    echo ""
+    echo "Commands:"
+    echo "  create <name>   Create a new channel"
+    echo "  list            List all channels"
+    echo "  rm <name>       Remove a channel"
+    exit 1
+}
+
+case "$ACTION" in
+    create)
+        [[ -z "$CHANNEL" ]] && usage
+        CHANNEL_DIR="$AQ_HOME/channels/$CHANNEL"
+        mkdir -p "$CHANNEL_DIR"/{requests,responses,processing,archive}
+        echo "Channel '$CHANNEL' created at $CHANNEL_DIR"
+        ;;
+    list)
+        ls -1 "$AQ_HOME/channels/" 2>/dev/null || echo "No channels found"
+        ;;
+    rm)
+        [[ -z "$CHANNEL" ]] && usage
+        rm -rf "$AQ_HOME/channels/$CHANNEL"
+        echo "Channel '$CHANNEL' removed"
+        ;;
+    *)
+        usage
+        ;;
+esac
+#+end_src
+
+* Protocol Specification
+
+** Message Format
+
+*** Request
+
+#+begin_src json
+{
+  "id": "req_<ulid>",
+  "version": "1.0.0",
+  "type": "eval|command|signal|status",
+  "from": {
+    "agent": "github.com/org/repo/branch",
+    "pid": 12345,
+    "pwd": "/path/to/worktree"
+  },
+  "to": "channel-name|agent-address|broadcast",
+  "content": "<payload>",
+  "timestamp": "2025-01-28T12:00:00Z",
+  "ttl": 300,
+  "reply_to": "channel-name"
+}
+#+end_src
+
+*** Response
+
+#+begin_src json
+{
+  "id": "req_<ulid>",
+  "version": "1.0.0", 
+  "status": "success|error|pending",
+  "from": {
+    "agent": "github.com/org/repo/branch",
+    "pid": 12346
+  },
+  "result": "<payload>",
+  "error": null,
+  "timestamp": "2025-01-28T12:00:01Z"
+}
+#+end_src
+
+** Message Types
+
+| Type    | Description                          | Content Schema                |
+|---------+--------------------------------------+-------------------------------|
+| eval    | Execute code/command                 | String (shell/elisp/python)   |
+| command | Natural language instruction         | String                        |
+| signal  | Simple notification (tests passed)   | {signal: string, data?: any}  |
+| status  | Health check / heartbeat             | {} or {query: string}         |
+
+** Agent Addressing
+
+Agents are addressed by their git context:
+
+#+begin_example
+# Full address
+github.com/myorg/myrepo/main
+
+# With worktree
+github.com/myorg/myrepo/worktrees/feature-x
+
+# Local (no remote)
+local/myrepo/main
+
+# Shorthand (resolved from pwd)
+@self        -> current agent
+@parent      -> parent repo (if in worktree)
+broadcast    -> all listening agents
+#+end_example
+
+* CLI Implementation
+
+** Main Entry Point
+
+#+begin_src python :tangle ~/.local/bin/aq :shebang "#!/usr/bin/env python3"
+#!/usr/bin/env python3
+"""
+aq - Agent Queue CLI
+
+A minimal file-based message bus for AI agent coordination.
+"""
+
+import argparse
+import json
+import os
+import sys
+import time
+import subprocess
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Optional
+import hashlib
+
+
+AQ_HOME = Path(os.environ.get("AQ_HOME", Path.home() / ".aq"))
+VERSION = "1.0.0"
+
+
+def ulid_simple() -> str:
+    """Generate a simple time-sortable ID."""
+    ts = int(time.time() * 1000)
+    rand = hashlib.sha256(os.urandom(16)).hexdigest()[:10]
+    return f"{ts:012x}{rand}"
+
+
+def get_git_context(pwd: Optional[Path] = None) -> dict:
+    """Extract git context from current directory."""
+    pwd = pwd or Path.cwd()
+    
+    try:
+        # Get remote URL
+        result = subprocess.run(
+            ["git", "-C", str(pwd), "remote", "get-url", "origin"],
+            capture_output=True, text=True, timeout=5
+        )
+        if result.returncode == 0:
+            remote = result.stdout.strip()
+            # Normalize git URLs to path format
+            remote = remote.replace("git@github.com:", "github.com/")
+            remote = remote.replace("https://github.com/", "github.com/")
+            remote = remote.rstrip(".git")
+        else:
+            remote = "local"
+            
+        # Get branch
+        result = subprocess.run(
+            ["git", "-C", str(pwd), "rev-parse", "--abbrev-ref", "HEAD"],
+            capture_output=True, text=True, timeout=5
+        )
+        branch = result.stdout.strip() if result.returncode == 0 else "unknown"
+        
+        # Check if worktree
+        result = subprocess.run(
+            ["git", "-C", str(pwd), "rev-parse", "--git-common-dir"],
+            capture_output=True, text=True, timeout=5
+        )
+        common_dir = Path(result.stdout.strip()) if result.returncode == 0 else None
+        
+        result = subprocess.run(
+            ["git", "-C", str(pwd), "rev-parse", "--git-dir"],
+            capture_output=True, text=True, timeout=5
+        )
+        git_dir = Path(result.stdout.strip()) if result.returncode == 0 else None
+        
+        is_worktree = common_dir and git_dir and common_dir.resolve() != git_dir.resolve()
+        
+        if is_worktree:
+            agent = f"{remote}/worktrees/{branch}"
+        else:
+            agent = f"{remote}/{branch}"
+            
+        return {
+            "agent": agent,
+            "remote": remote,
+            "branch": branch,
+            "is_worktree": is_worktree,
+            "pwd": str(pwd)
+        }
+        
+    except Exception as e:
+        return {
+            "agent": f"local/unknown/{pwd.name}",
+            "remote": "local",
+            "branch": "unknown", 
+            "is_worktree": False,
+            "pwd": str(pwd),
+            "error": str(e)
+        }
+
+
+def resolve_address(addr: str, context: dict) -> str:
+    """Resolve special addresses like @self, @parent."""
+    if addr == "@self":
+        return context["agent"]
+    if addr == "@parent":
+        # Strip worktree portion
+        parts = context["agent"].split("/worktrees/")
+        if len(parts) > 1:
+            return parts[0] + "/main"  # Assume main is parent
+        return context["agent"]
+    return addr
+
+
+def get_channel_path(channel: str) -> Path:
+    """Get path to channel directory."""
+    return AQ_HOME / "channels" / channel
+
+
+def send_message(channel: str, msg_type: str, content: str, 
+                 reply_to: Optional[str] = None, ttl: int = 300) -> dict:
+    """Send a message to a channel."""
+    context = get_git_context()
+    channel = resolve_address(channel, context)
+    
+    channel_path = get_channel_path(channel)
+    requests_dir = channel_path / "requests"
+    
+    if not requests_dir.exists():
+        print(f"Error: Channel '{channel}' does not exist", file=sys.stderr)
+        print(f"Create it with: aq-channel create {channel}", file=sys.stderr)
+        sys.exit(1)
+    
+    msg_id = f"req_{ulid_simple()}"
+    
+    message = {
+        "id": msg_id,
+        "version": VERSION,
+        "type": msg_type,
+        "from": {
+            "agent": context["agent"],
+            "pid": os.getpid(),
+            "pwd": context["pwd"]
+        },
+        "to": channel,
+        "content": content,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "ttl": ttl,
+    }
+    
+    if reply_to:
+        message["reply_to"] = reply_to
+    
+    msg_file = requests_dir / f"{msg_id}.json"
+    msg_file.write_text(json.dumps(message, indent=2))
+    
+    return message
+
+
+def wait_for_response(channel: str, msg_id: str, timeout: int = 30) -> Optional[dict]:
+    """Wait for a response to a specific message."""
+    channel_path = get_channel_path(channel)
+    responses_dir = channel_path / "responses"
+    
+    start = time.time()
+    while time.time() - start < timeout:
+        response_file = responses_dir / f"{msg_id}.json"
+        if response_file.exists():
+            response = json.loads(response_file.read_text())
+            # Archive it
+            archive_dir = channel_path / "archive"
+            archive_dir.mkdir(exist_ok=True)
+            response_file.rename(archive_dir / f"{msg_id}_response.json")
+            return response
+        time.sleep(0.1)
+    
+    return None
+
+
+def cmd_send(args):
+    """Send a message."""
+    # Read content from stdin if not provided
+    content = args.content
+    if content == "-":
+        content = sys.stdin.read()
+    
+    msg = send_message(
+        channel=args.channel,
+        msg_type=args.type,
+        content=content,
+        reply_to=args.reply_to,
+        ttl=args.ttl
+    )
+    
+    if args.json:
+        print(json.dumps(msg, indent=2))
+    else:
+        print(f"Sent: {msg['id']} -> {args.channel}")
+    
+    if args.wait:
+        print(f"Waiting for response (timeout: {args.timeout}s)...")
+        response = wait_for_response(args.channel, msg["id"], args.timeout)
+        if response:
+            if args.json:
+                print(json.dumps(response, indent=2))
+            else:
+                status = response.get("status", "unknown")
+                result = response.get("result", "")
+                print(f"Response [{status}]: {result[:200]}")
+        else:
+            print("Timeout waiting for response", file=sys.stderr)
+            sys.exit(1)
+
+
+def cmd_recv(args):
+    """Receive/poll messages from a channel."""
+    channel_path = get_channel_path(args.channel)
+    requests_dir = channel_path / "requests"
+    processing_dir = channel_path / "processing"
+    
+    if not requests_dir.exists():
+        print(f"Error: Channel '{args.channel}' does not exist", file=sys.stderr)
+        sys.exit(1)
+    
+    processing_dir.mkdir(exist_ok=True)
+    
+    # Get oldest message
+    messages = sorted(requests_dir.glob("*.json"))
+    
+    if not messages:
+        if not args.wait:
+            sys.exit(0)
+        # Poll mode
+        while True:
+            messages = sorted(requests_dir.glob("*.json"))
+            if messages:
+                break
+            time.sleep(0.1)
+    
+    msg_file = messages[0]
+    msg = json.loads(msg_file.read_text())
+    
+    # Move to processing
+    processing_file = processing_dir / msg_file.name
+    msg_file.rename(processing_file)
+    
+    if args.json:
+        print(json.dumps(msg, indent=2))
+    else:
+        print(f"ID: {msg['id']}")
+        print(f"Type: {msg['type']}")
+        print(f"From: {msg['from']['agent']}")
+        print(f"Content: {msg['content'][:500]}")
+    
+    # Store processing file path for respond command
+    print(f"_AQ_PROCESSING={processing_file}", file=sys.stderr)
+
+
+def cmd_respond(args):
+    """Send a response to a received message."""
+    channel_path = get_channel_path(args.channel)
+    processing_dir = channel_path / "processing"
+    responses_dir = channel_path / "responses"
+    archive_dir = channel_path / "archive"
+    
+    responses_dir.mkdir(exist_ok=True)
+    archive_dir.mkdir(exist_ok=True)
+    
+    processing_file = processing_dir / f"{args.id}.json"
+    if not processing_file.exists():
+        print(f"Error: No processing message with id {args.id}", file=sys.stderr)
+        sys.exit(1)
+    
+    original = json.loads(processing_file.read_text())
+    context = get_git_context()
+    
+    result = args.result
+    if result == "-":
+        result = sys.stdin.read()
+    
+    response = {
+        "id": args.id,
+        "version": VERSION,
+        "status": args.status,
+        "from": {
+            "agent": context["agent"],
+            "pid": os.getpid()
+        },
+        "result": result,
+        "error": args.error,
+        "timestamp": datetime.now(timezone.utc).isoformat()
+    }
+    
+    # Write response
+    response_file = responses_dir / f"{args.id}.json"
+    response_file.write_text(json.dumps(response, indent=2))
+    
+    # Archive original request
+    processing_file.rename(archive_dir / f"{args.id}_request.json")
+    
+    if args.json:
+        print(json.dumps(response, indent=2))
+    else:
+        print(f"Response sent: {args.id} [{args.status}]")
+
+
+def cmd_watch(args):
+    """Watch a channel and execute handler for each message."""
+    channel_path = get_channel_path(args.channel)
+    requests_dir = channel_path / "requests"
+    
+    if not requests_dir.exists():
+        print(f"Error: Channel '{args.channel}' does not exist", file=sys.stderr)
+        sys.exit(1)
+    
+    print(f"Watching channel: {args.channel}")
+    print(f"Handler: {args.handler}")
+    
+    while True:
+        messages = sorted(requests_dir.glob("*.json"))
+        
+        for msg_file in messages:
+            msg = json.loads(msg_file.read_text())
+            msg_id = msg["id"]
+            
+            # Move to processing
+            processing_dir = channel_path / "processing"
+            processing_dir.mkdir(exist_ok=True)
+            processing_file = processing_dir / msg_file.name
+            msg_file.rename(processing_file)
+            
+            print(f"Processing: {msg_id}")
+            
+            # Execute handler
+            try:
+                env = os.environ.copy()
+                env["AQ_MSG_ID"] = msg_id
+                env["AQ_MSG_TYPE"] = msg["type"]
+                env["AQ_MSG_FROM"] = msg["from"]["agent"]
+                env["AQ_MSG_CONTENT"] = msg["content"]
+                env["AQ_CHANNEL"] = args.channel
+                
+                result = subprocess.run(
+                    [args.handler],
+                    input=json.dumps(msg),
+                    capture_output=True,
+                    text=True,
+                    env=env,
+                    timeout=args.timeout
+                )
+                
+                status = "success" if result.returncode == 0 else "error"
+                output = result.stdout if result.returncode == 0 else result.stderr
+                
+            except subprocess.TimeoutExpired:
+                status = "error"
+                output = f"Handler timeout after {args.timeout}s"
+            except Exception as e:
+                status = "error"
+                output = str(e)
+            
+            # Write response
+            context = get_git_context()
+            response = {
+                "id": msg_id,
+                "version": VERSION,
+                "status": status,
+                "from": {
+                    "agent": context["agent"],
+                    "pid": os.getpid()
+                },
+                "result": output.strip(),
+                "error": None if status == "success" else output.strip(),
+                "timestamp": datetime.now(timezone.utc).isoformat()
+            }
+            
+            responses_dir = channel_path / "responses"
+            responses_dir.mkdir(exist_ok=True)
+            response_file = responses_dir / f"{msg_id}.json"
+            response_file.write_text(json.dumps(response, indent=2))
+            
+            # Archive
+            archive_dir = channel_path / "archive"
+            archive_dir.mkdir(exist_ok=True)
+            processing_file.rename(archive_dir / f"{msg_id}_request.json")
+            
+            print(f"  -> {status}: {output[:100]}")
+        
+        time.sleep(args.poll)
+
+
+def cmd_status(args):
+    """Show agent bus status."""
+    context = get_git_context()
+    
+    print(f"Agent Bus Status")
+    print(f"================")
+    print(f"Home: {AQ_HOME}")
+    print(f"Agent: {context['agent']}")
+    print(f"PWD: {context['pwd']}")
+    print(f"Worktree: {context['is_worktree']}")
+    print()
+    
+    channels_dir = AQ_HOME / "channels"
+    if channels_dir.exists():
+        print("Channels:")
+        for ch in sorted(channels_dir.iterdir()):
+            if ch.is_dir():
+                req_count = len(list((ch / "requests").glob("*.json"))) if (ch / "requests").exists() else 0
+                proc_count = len(list((ch / "processing").glob("*.json"))) if (ch / "processing").exists() else 0
+                resp_count = len(list((ch / "responses").glob("*.json"))) if (ch / "responses").exists() else 0
+                print(f"  {ch.name}: {req_count} pending, {proc_count} processing, {resp_count} responses")
+
+
+def cmd_ls(args):
+    """List messages in a channel."""
+    channel_path = get_channel_path(args.channel)
+    
+    subdir = args.subdir or "requests"
+    target_dir = channel_path / subdir
+    
+    if not target_dir.exists():
+        print(f"No {subdir} directory in channel '{args.channel}'", file=sys.stderr)
+        sys.exit(1)
+    
+    messages = sorted(target_dir.glob("*.json"), reverse=not args.oldest_first)
+    
+    if args.count:
+        print(len(messages))
+        return
+    
+    for msg_file in messages[:args.limit]:
+        msg = json.loads(msg_file.read_text())
+        if args.json:
+            print(json.dumps(msg))
+        else:
+            ts = msg.get("timestamp", "")[:19]
+            from_agent = msg.get("from", {}).get("agent", "unknown")
+            msg_type = msg.get("type", msg.get("status", "?"))
+            content = msg.get("content", msg.get("result", ""))[:60]
+            print(f"{msg['id'][:20]}  {ts}  {msg_type:8}  {from_agent[:30]}  {content}")
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Agent Queue - file-based message bus for AI agents",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  aq send test-runner signal '{"signal": "tests_passed", "count": 42}'
+  aq send app-agent command "deploy to staging" --wait
+  aq recv my-channel --wait
+  aq respond my-channel req_xxx --status success --result "done"
+  aq watch my-channel --handler ./process.sh
+  aq status
+        """
+    )
+    
+    subparsers = parser.add_subparsers(dest="command", required=True)
+    
+    # send
+    p_send = subparsers.add_parser("send", help="Send a message to a channel")
+    p_send.add_argument("channel", help="Target channel or agent address")
+    p_send.add_argument("type", choices=["eval", "command", "signal", "status"],
+                        help="Message type")
+    p_send.add_argument("content", nargs="?", default="-",
+                        help="Message content (- for stdin)")
+    p_send.add_argument("--reply-to", help="Channel for responses")
+    p_send.add_argument("--ttl", type=int, default=300, help="Time to live in seconds")
+    p_send.add_argument("--wait", "-w", action="store_true", help="Wait for response")
+    p_send.add_argument("--timeout", "-t", type=int, default=30, help="Response timeout")
+    p_send.add_argument("--json", "-j", action="store_true", help="JSON output")
+    p_send.set_defaults(func=cmd_send)
+    
+    # recv
+    p_recv = subparsers.add_parser("recv", help="Receive a message from a channel")
+    p_recv.add_argument("channel", help="Channel to receive from")
+    p_recv.add_argument("--wait", "-w", action="store_true", help="Wait for message")
+    p_recv.add_argument("--json", "-j", action="store_true", help="JSON output")
+    p_recv.set_defaults(func=cmd_recv)
+    
+    # respond
+    p_resp = subparsers.add_parser("respond", help="Send response to a message")
+    p_resp.add_argument("channel", help="Channel")
+    p_resp.add_argument("id", help="Message ID to respond to")
+    p_resp.add_argument("--status", "-s", default="success", 
+                        choices=["success", "error", "pending"])
+    p_resp.add_argument("--result", "-r", default="", help="Result content (- for stdin)")
+    p_resp.add_argument("--error", "-e", help="Error message")
+    p_resp.add_argument("--json", "-j", action="store_true", help="JSON output")
+    p_resp.set_defaults(func=cmd_respond)
+    
+    # watch
+    p_watch = subparsers.add_parser("watch", help="Watch channel and run handler")
+    p_watch.add_argument("channel", help="Channel to watch")
+    p_watch.add_argument("--handler", "-H", required=True, help="Handler script")
+    p_watch.add_argument("--poll", "-p", type=float, default=0.5, help="Poll interval")
+    p_watch.add_argument("--timeout", "-t", type=int, default=60, help="Handler timeout")
+    p_watch.set_defaults(func=cmd_watch)
+    
+    # status
+    p_status = subparsers.add_parser("status", help="Show agent bus status")
+    p_status.set_defaults(func=cmd_status)
+    
+    # ls
+    p_ls = subparsers.add_parser("ls", help="List messages in a channel")
+    p_ls.add_argument("channel", help="Channel name")
+    p_ls.add_argument("subdir", nargs="?", help="Subdirectory (requests/responses/processing/archive)")
+    p_ls.add_argument("--limit", "-n", type=int, default=20, help="Max messages")
+    p_ls.add_argument("--oldest-first", "-o", action="store_true")
+    p_ls.add_argument("--count", "-c", action="store_true", help="Just count")
+    p_ls.add_argument("--json", "-j", action="store_true", help="JSON output")
+    p_ls.set_defaults(func=cmd_ls)
+    
+    args = parser.parse_args()
+    args.func(args)
+
+
+if __name__ == "__main__":
+    main()
+#+end_src
+
+* Handler Examples
+
+** Simple Echo Handler (Shell)
+
+#+begin_src shell :tangle ~/.local/share/aq/handlers/echo.sh :shebang "#!/usr/bin/env bash"
+#!/usr/bin/env bash
+# Echo handler - just echoes back the message content
+# Environment vars: AQ_MSG_ID, AQ_MSG_TYPE, AQ_MSG_FROM, AQ_MSG_CONTENT, AQ_CHANNEL
+
+echo "Received: $AQ_MSG_CONTENT"
+echo "From: $AQ_MSG_FROM"
+echo "Type: $AQ_MSG_TYPE"
+#+end_src
+
+** Test Runner Signal Handler
+
+#+begin_src shell :tangle ~/.local/share/aq/handlers/test-signal.sh :shebang "#!/usr/bin/env bash"
+#!/usr/bin/env bash
+# Handle test signals and trigger appropriate actions
+set -euo pipefail
+
+# Parse JSON input
+MSG=$(cat)
+SIGNAL=$(echo "$MSG" | jq -r '.content | fromjson | .signal // empty')
+
+case "$SIGNAL" in
+    tests_passed)
+        echo "All tests passed - ready for next step"
+        # Could trigger: aq send app-agent command "deploy staging"
+        ;;
+    tests_failed)
+        FAILURES=$(echo "$MSG" | jq -r '.content | fromjson | .failures // 0')
+        echo "Tests failed: $FAILURES failures"
+        ;;
+    coverage_report)
+        COVERAGE=$(echo "$MSG" | jq -r '.content | fromjson | .coverage // 0')
+        echo "Coverage: ${COVERAGE}%"
+        ;;
+    *)
+        echo "Unknown signal: $SIGNAL"
+        exit 1
+        ;;
+esac
+#+end_src
+
+** Claude Code Integration Handler
+
+#+begin_src python :tangle ~/.local/share/aq/handlers/cc-bridge.py :shebang "#!/usr/bin/env python3"
+#!/usr/bin/env python3
+"""
+Bridge handler for Claude Code agents.
+Translates aq messages into Claude Code compatible format.
+"""
+
+import json
+import os
+import sys
+import subprocess
+from pathlib import Path
+
+
+def handle_command(msg: dict) -> tuple[str, str]:
+    """Handle natural language command by invoking Claude Code."""
+    content = msg["content"]
+    pwd = msg["from"].get("pwd", os.getcwd())
+    
+    # Check if Claude Code is available
+    cc_path = subprocess.run(["which", "claude"], capture_output=True, text=True)
+    if cc_path.returncode != 0:
+        return "error", "Claude Code (claude) not found in PATH"
+    
+    # For now, just acknowledge - actual CC integration would go here
+    return "success", f"Would execute in {pwd}: {content}"
+
+
+def handle_eval(msg: dict) -> tuple[str, str]:
+    """Handle eval requests - execute shell commands."""
+    content = msg["content"]
+    
+    try:
+        result = subprocess.run(
+            content,
+            shell=True,
+            capture_output=True,
+            text=True,
+            timeout=30,
+            cwd=msg["from"].get("pwd")
+        )
+        if result.returncode == 0:
+            return "success", result.stdout
+        else:
+            return "error", result.stderr
+    except subprocess.TimeoutExpired:
+        return "error", "Command timed out"
+    except Exception as e:
+        return "error", str(e)
+
+
+def handle_signal(msg: dict) -> tuple[str, str]:
+    """Handle signal messages."""
+    try:
+        signal_data = json.loads(msg["content"])
+        signal_type = signal_data.get("signal", "unknown")
+        return "success", f"Acknowledged signal: {signal_type}"
+    except json.JSONDecodeError:
+        return "success", f"Acknowledged raw signal: {msg['content']}"
+
+
+def handle_status(msg: dict) -> tuple[str, str]:
+    """Handle status/health check."""
+    return "success", json.dumps({
+        "status": "healthy",
+        "agent": os.environ.get("AQ_MSG_FROM", "unknown"),
+        "pid": os.getpid()
+    })
+
+
+def main():
+    msg = json.load(sys.stdin)
+    msg_type = msg.get("type", "unknown")
+    
+    handlers = {
+        "command": handle_command,
+        "eval": handle_eval,
+        "signal": handle_signal,
+        "status": handle_status,
+    }
+    
+    handler = handlers.get(msg_type)
+    if not handler:
+        print(f"Unknown message type: {msg_type}", file=sys.stderr)
+        sys.exit(1)
+    
+    status, result = handler(msg)
+    print(result)
+    sys.exit(0 if status == "success" else 1)
+
+
+if __name__ == "__main__":
+    main()
+#+end_src
+
+* Ruby Implementation
+
+For those who prefer Ruby, here's a minimal client library:
+
+** Ruby Client Library
+
+#+begin_src ruby :tangle ~/.local/share/aq/lib/aq.rb
+# frozen_string_literal: true
+
+# Agent Queue Ruby client
+# Usage:
+#   require_relative 'aq'
+#   AQ.send('my-channel', :signal, { signal: 'done', count: 42 })
+#   msg = AQ.recv('my-channel', wait: true)
+
+require 'json'
+require 'fileutils'
+require 'time'
+require 'digest'
+
+module AQ
+  VERSION = '1.0.0'
+  HOME = ENV.fetch('AQ_HOME', File.expand_path('~/.aq'))
+  
+  class << self
+    def ulid
+      ts = (Time.now.to_f * 1000).to_i.to_s(16).rjust(12, '0')
+      rand = Digest::SHA256.hexdigest(Random.bytes(16))[0, 10]
+      "#{ts}#{rand}"
+    end
+    
+    def git_context(pwd = Dir.pwd)
+      remote = `git -C #{pwd} remote get-url origin 2>/dev/null`.strip
+      remote = remote.empty? ? 'local' : remote
+        .gsub('git@github.com:', 'github.com/')
+        .gsub('https://github.com/', 'github.com/')
+        .gsub(/\.git$/, '')
+      
+      branch = `git -C #{pwd} rev-parse --abbrev-ref HEAD 2>/dev/null`.strip
+      branch = 'unknown' if branch.empty?
+      
+      common = `git -C #{pwd} rev-parse --git-common-dir 2>/dev/null`.strip
+      gitdir = `git -C #{pwd} rev-parse --git-dir 2>/dev/null`.strip
+      worktree = !common.empty? && !gitdir.empty? && 
+                 File.realpath(common) != File.realpath(gitdir) rescue false
+      
+      agent = worktree ? "#{remote}/worktrees/#{branch}" : "#{remote}/#{branch}"
+      
+      { agent: agent, remote: remote, branch: branch, worktree: worktree, pwd: pwd }
+    end
+    
+    def channel_path(channel)
+      File.join(HOME, 'channels', channel)
+    end
+    
+    def send(channel, type, content, reply_to: nil, ttl: 300)
+      ctx = git_context
+      requests_dir = File.join(channel_path(channel), 'requests')
+      
+      unless Dir.exist?(requests_dir)
+        raise "Channel '#{channel}' does not exist. Create with: aq-channel create #{channel}"
+      end
+      
+      msg_id = "req_#{ulid}"
+      content_str = content.is_a?(Hash) ? content.to_json : content.to_s
+      
+      message = {
+        id: msg_id,
+        version: VERSION,
+        type: type.to_s,
+        from: { agent: ctx[:agent], pid: Process.pid, pwd: ctx[:pwd] },
+        to: channel,
+        content: content_str,
+        timestamp: Time.now.utc.iso8601,
+        ttl: ttl
+      }
+      message[:reply_to] = reply_to if reply_to
+      
+      File.write(File.join(requests_dir, "#{msg_id}.json"), JSON.pretty_generate(message))
+      message
+    end
+    
+    def recv(channel, wait: false, timeout: 30)
+      requests_dir = File.join(channel_path(channel), 'requests')
+      processing_dir = File.join(channel_path(channel), 'processing')
+      FileUtils.mkdir_p(processing_dir)
+      
+      start = Time.now
+      loop do
+        files = Dir.glob(File.join(requests_dir, '*.json')).sort
+        
+        if files.any?
+          msg_file = files.first
+          msg = JSON.parse(File.read(msg_file), symbolize_names: true)
+          
+          # Move to processing
+          processing_file = File.join(processing_dir, File.basename(msg_file))
+          FileUtils.mv(msg_file, processing_file)
+          
+          return msg
+        end
+        
+        return nil unless wait
+        break if Time.now - start > timeout
+        sleep 0.1
+      end
+      nil
+    end
+    
+    def respond(channel, msg_id, status: :success, result: '', error: nil)
+      ctx = git_context
+      responses_dir = File.join(channel_path(channel), 'responses')
+      archive_dir = File.join(channel_path(channel), 'archive')
+      processing_dir = File.join(channel_path(channel), 'processing')
+      
+      FileUtils.mkdir_p(responses_dir)
+      FileUtils.mkdir_p(archive_dir)
+      
+      response = {
+        id: msg_id,
+        version: VERSION,
+        status: status.to_s,
+        from: { agent: ctx[:agent], pid: Process.pid },
+        result: result,
+        error: error,
+        timestamp: Time.now.utc.iso8601
+      }
+      
+      File.write(File.join(responses_dir, "#{msg_id}.json"), JSON.pretty_generate(response))
+      
+      # Archive original
+      processing_file = File.join(processing_dir, "#{msg_id}.json")
+      if File.exist?(processing_file)
+        FileUtils.mv(processing_file, File.join(archive_dir, "#{msg_id}_request.json"))
+      end
+      
+      response
+    end
+  end
+end
+#+end_src
+
+** Ruby Handler Example
+
+#+begin_src ruby :tangle ~/.local/share/aq/handlers/example.rb :shebang "#!/usr/bin/env ruby"
+#!/usr/bin/env ruby
+# Example Ruby handler for aq watch
+
+require 'json'
+
+msg = JSON.parse($stdin.read, symbolize_names: true)
+
+case msg[:type]
+when 'signal'
+  signal = JSON.parse(msg[:content], symbolize_names: true) rescue { signal: msg[:content] }
+  puts "Got signal: #{signal[:signal]}"
+when 'command'
+  puts "Would execute: #{msg[:content]}"
+when 'eval'
+  result = `#{msg[:content]} 2>&1`
+  puts result
+when 'status'
+  puts JSON.generate(status: 'ok', handler: 'ruby')
+else
+  warn "Unknown type: #{msg[:type]}"
+  exit 1
+end
+#+end_src
+
+* Usage Examples
+
+** Cross-Repo Test Coordination
+
+Scenario: Test repo signals app repo when tests complete.
+
+*** In test repo (worktree: =tests=)
+
+#+begin_src shell
+# After test run completes
+aq send app-agent signal '{"signal": "tests_passed", "suite": "integration", "count": 147}'
+#+end_src
+
+*** In app repo (worktree: =main=)
+
+#+begin_src shell
+# Start watching for signals
+aq watch app-agent --handler ~/.local/share/aq/handlers/test-signal.sh
+#+end_src
+
+** Interactive Agent Communication
+
+#+begin_src shell
+# Terminal 1: Start a watcher
+aq-channel create my-agent
+aq watch my-agent --handler ~/.local/share/aq/handlers/cc-bridge.py
+
+# Terminal 2: Send commands
+aq send my-agent command "analyze the error logs and summarize issues"
+aq send my-agent eval "git status"
+aq send my-agent status "{}" --wait
+#+end_src
+
+** Programmatic Usage (Python)
+
+#+begin_src python
+#!/usr/bin/env python3
+"""Example: Programmatic agent bus usage"""
+
+import subprocess
+import json
+
+def aq_send(channel: str, msg_type: str, content: str, wait: bool = False) -> dict:
+    cmd = ["aq", "send", channel, msg_type, content, "--json"]
+    if wait:
+        cmd.extend(["--wait", "--timeout", "60"])
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    return json.loads(result.stdout) if result.stdout else {}
+
+# Send a signal when tests complete
+aq_send("app-agent", "signal", json.dumps({
+    "signal": "tests_passed",
+    "coverage": 87.5,
+    "duration": 142
+}))
+
+# Send a command and wait for response
+response = aq_send("deploy-agent", "command", "deploy to staging", wait=True)
+print(f"Deploy result: {response.get('result')}")
+#+end_src
+
+* Systemd Service (Optional)
+
+For persistent watchers:
+
+#+begin_src conf :tangle ~/.config/systemd/user/aq-watcher@.service
+[Unit]
+Description=Agent Queue Watcher for %i
+After=network.target
+
+[Service]
+Type=simple
+Environment=AQ_HOME=%h/.aq
+ExecStart=%h/.local/bin/aq watch %i --handler %h/.local/share/aq/handlers/%i.sh
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
+#+end_src
+
+Enable with:
+
+#+begin_src shell
+systemctl --user enable aq-watcher@my-agent
+systemctl --user start aq-watcher@my-agent
+#+end_src
+
+* Tangling
+
+To extract all code from this document:
+
+#+begin_src shell
+# Tangle everything
+emacs --batch -l org --eval '(org-babel-tangle-file "agent-bus-spec.org")'
+
+# Make executables
+chmod +x ~/.local/bin/aq*
+chmod +x ~/.local/share/aq/handlers/*.sh
+chmod +x ~/.local/share/aq/handlers/*.py
+chmod +x ~/.local/share/aq/handlers/*.rb
+
+# Initialize
+aq-init
+#+end_src
+
+Or interactively: =C-c C-v t= (=org-babel-tangle=)
+
+* Quick Reference
+
+| Command                    | Description                      |
+|----------------------------+----------------------------------|
+| =aq-init=                  | Initialize ~/.aq                 |
+| =aq-channel create NAME=   | Create a channel                 |
+| =aq send CHAN TYPE CONTENT= | Send message                    |
+| =aq recv CHAN [--wait]=    | Receive one message              |
+| =aq respond CHAN ID=       | Send response                    |
+| =aq watch CHAN -H SCRIPT=  | Watch and handle messages        |
+| =aq status=                | Show bus status                  |
+| =aq ls CHAN [SUBDIR]=      | List messages                    |
+
+** Environment Variables
+
+| Variable    | Default     | Description              |
+|-------------+-------------+--------------------------|
+| =AQ_HOME=   | =~/.aq=     | Agent bus home directory |
+| =AQ_MSG_ID= | (set by aq) | Current message ID       |
+| =AQ_MSG_TYPE= | (set by aq) | Current message type   |
+| =AQ_MSG_FROM= | (set by aq) | Sender agent address   |
+| =AQ_MSG_CONTENT= | (set by aq) | Message content     |
+| =AQ_CHANNEL= | (set by aq) | Current channel         |
+#+end_src
