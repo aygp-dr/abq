@@ -160,6 +160,21 @@ export-md: ## Export org files to Markdown (GitHub-flavored)
 	done
 
 #---------------------------------------------------------------------------
+# Remote Sync
+#---------------------------------------------------------------------------
+
+REMOTE_HOST ?= hydrabos
+
+sync-down: ## Pull channels from remote host (REMOTE_HOST=hydrabos)
+	$(UV) run abq sync-remote $(REMOTE_HOST) down -v
+
+sync-up: ## Push channels to remote host (REMOTE_HOST=hydrabos)
+	$(UV) run abq sync-remote $(REMOTE_HOST) up -v
+
+sync-both: ## Bidirectional sync with remote host (REMOTE_HOST=hydrabos)
+	$(UV) run abq sync-remote $(REMOTE_HOST) both -v
+
+#---------------------------------------------------------------------------
 # Cleanup
 #---------------------------------------------------------------------------
 

@@ -272,6 +272,47 @@ def cmd_ls(args):
             print(f"{msg['id'][:20]}  {ts}  {msg_type:8}  {from_agent[:30]}  {content}")
 
 
+def cmd_sync_remote(args):
+    """Sync channels with a remote host via rsync."""
+    abq_home = os.environ.get("ABQ_HOME", os.path.expanduser("~/.abq"))
+    channels_path = os.path.join(abq_home, "channels/")
+    remote_path = f"{args.host}:{channels_path}"
+
+    rsync_cmd = ["rsync", "-avz"]
+    if args.delete:
+        rsync_cmd.append("--delete")
+
+    direction = args.direction
+
+    if direction in ("down", "both"):
+        cmd = rsync_cmd + [remote_path, channels_path]
+        print(f"Pulling from {args.host}...")
+        result = subprocess.run(cmd, capture_output=not args.verbose, text=True)
+        if result.returncode != 0:
+            print(f"Error pulling from {args.host}", file=sys.stderr)
+            if not args.verbose and result.stderr:
+                print(result.stderr, file=sys.stderr)
+            sys.exit(1)
+        if args.verbose:
+            pass  # already printed by rsync
+        else:
+            print(f"Pull complete.")
+
+    if direction in ("up", "both"):
+        cmd = rsync_cmd + [channels_path, remote_path]
+        print(f"Pushing to {args.host}...")
+        result = subprocess.run(cmd, capture_output=not args.verbose, text=True)
+        if result.returncode != 0:
+            print(f"Error pushing to {args.host}", file=sys.stderr)
+            if not args.verbose and result.stderr:
+                print(result.stderr, file=sys.stderr)
+            sys.exit(1)
+        if args.verbose:
+            pass
+        else:
+            print(f"Push complete.")
+
+
 def cmd_version(args):
     """Show version."""
     print(f"abq {__version__}")
@@ -356,6 +397,15 @@ Examples:
     p_ls.add_argument("--count", "-c", action="store_true", help="Just count")
     p_ls.add_argument("--json", "-j", action="store_true", help="JSON output")
     p_ls.set_defaults(func=cmd_ls)
+
+    # sync-remote
+    p_sync = subparsers.add_parser("sync-remote", help="Sync channels with remote host via rsync")
+    p_sync.add_argument("host", help="Remote host (e.g., hydrabos, user@host)")
+    p_sync.add_argument("direction", nargs="?", default="down",
+                        choices=["up", "down", "both"], help="Sync direction (default: down)")
+    p_sync.add_argument("--delete", action="store_true", help="Delete extraneous files on receiver")
+    p_sync.add_argument("--verbose", "-v", action="store_true", help="Show rsync output")
+    p_sync.set_defaults(func=cmd_sync_remote)
 
     # version
     p_version = subparsers.add_parser("version", help="Show version")
