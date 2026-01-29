@@ -278,7 +278,7 @@ while True:
     time.sleep(0.1)
 #+end_src
 
-*** 2. inotify (Linux)
+*** 2. inotify (Linux, FreeBSD 15+)
 
 #+begin_src python
 import inotify.adapters
@@ -288,6 +288,8 @@ for event in i.event_gen(yield_nones=False):
     if 'IN_CREATE' in event[1]:
         process(event[3])
 #+end_src
+
+Note: FreeBSD 15 added inotify compatibility via =libinotify=, so the same code works on both Linux and modern FreeBSD.
 
 *** 3. FSEvents/kqueue (macOS/BSD)
 
