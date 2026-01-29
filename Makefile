@@ -6,6 +6,8 @@ UV ?= uv
 PYTHON ?= python3
 ORG_FILES := $(wildcard *.org) $(wildcard **/*.org)
 TANGLE_TARGET := abq-spec.org
+# Common emacs batch invocation with abq.el loaded
+EMACS_BATCH = $(EMACS) --batch --load abq.el
 
 .PHONY: all help dev test lint clean install dot-render dot-tangle detangle presentations
 
@@ -59,11 +61,7 @@ typecheck: ## Type check with mypy
 
 tangle: ## Tangle all code blocks from abq-spec.org
 	@echo "Tangling $(TANGLE_TARGET)..."
-	$(EMACS) --batch \
-		--eval "(require 'org)" \
-		--eval "(setq org-confirm-babel-evaluate nil)" \
-		--eval "(add-to-list 'org-src-lang-modes '(\"dot\" . c))" \
-		--eval "(org-babel-tangle-file \"$(TANGLE_TARGET)\")"
+	$(EMACS_BATCH) --eval "(abq/tangle-file \"$(TANGLE_TARGET)\")"
 	@echo "Making scripts executable..."
 	chmod +x ~/.local/bin/abq* 2>/dev/null || true
 	chmod +x ~/.local/share/abq/handlers/*.sh 2>/dev/null || true
@@ -73,11 +71,7 @@ tangle: ## Tangle all code blocks from abq-spec.org
 
 detangle: ## Detangle: sync edits from tangled files back into org source
 	@echo "Detangling back into $(TANGLE_TARGET)..."
-	$(EMACS) --batch \
-		--eval "(require 'org)" \
-		--eval "(setq org-confirm-babel-evaluate nil)" \
-		--visit="$(TANGLE_TARGET)" \
-		--eval "(org-babel-detangle)"
+	$(EMACS_BATCH) --eval "(abq/detangle-file \"$(TANGLE_TARGET)\")"
 	@echo "Detangle complete."
 
 tangle-dry: ## Show what would be tangled (dry run)
@@ -101,16 +95,7 @@ lint-org: ## Lint org files for common issues
 	@echo "Linting org files..."
 	@for f in $(ORG_FILES); do \
 		echo "  Checking $$f..."; \
-		$(EMACS) --batch \
-			--eval "(require 'org)" \
-			--eval "(setq org-element-use-cache nil)" \
-			--visit="$$f" \
-			--eval "(org-lint)" \
-			--eval "(let ((warnings (org-lint))) \
-				(when warnings \
-					(dolist (w warnings) \
-						(princ (format \"  %s:%d: %s\n\" \"$$f\" (car w) (cadr w))))))" \
-		2>&1 | grep -v "^Loading" || true; \
+		$(EMACS_BATCH) --eval "(abq/lint-file \"$$f\")" 2>&1 | grep -v "^Loading" || true; \
 	done
 	@echo "Lint complete."
 
@@ -164,21 +149,13 @@ watch-test: ## Watch Python files and re-run tests (requires fswatch)
 export-html: ## Export org files to HTML
 	@for f in $(ORG_FILES); do \
 		echo "Exporting $$f to HTML..."; \
-		$(EMACS) --batch \
-			--eval "(require 'org)" \
-			--eval "(require 'ox-html)" \
-			--visit="$$f" \
-			--eval "(org-html-export-to-html)"; \
+		$(EMACS_BATCH) --eval "(abq/export-to-html \"$$f\")"; \
 	done
 
 export-md: ## Export org files to Markdown (GitHub-flavored)
 	@for f in $(ORG_FILES); do \
 		echo "Exporting $$f to Markdown..."; \
-		$(EMACS) --batch \
-			--eval "(require 'org)" \
-			--eval "(require 'ox-md)" \
-			--visit="$$f" \
-			--eval "(org-md-export-to-markdown)"; \
+		$(EMACS_BATCH) --eval "(abq/export-to-md \"$$f\")"; \
 	done
 
 #---------------------------------------------------------------------------
@@ -272,12 +249,7 @@ PRES_PDF := $(PRES_ORG:.org=.pdf)
 # Non-phony targets - only rebuilds if org file changed
 $(PRES_DIR)/%.pdf: $(PRES_DIR)/%.org
 	@echo "Exporting $< to PDF..."
-	$(EMACS) --batch \
-		--eval "(require 'org)" \
-		--eval "(require 'ox-latex)" \
-		--eval "(setq org-latex-pdf-process '(\"pdflatex -interaction nonstopmode -output-directory %o %f\" \"pdflatex -interaction nonstopmode -output-directory %o %f\"))" \
-		--visit="$<" \
-		--eval "(org-latex-export-to-pdf)"
+	$(EMACS_BATCH) --eval "(abq/export-to-pdf \"$<\")"
 	@echo "Created $@"
 
 presentations: $(PRES_PDF) ## Build presentation PDFs from org files

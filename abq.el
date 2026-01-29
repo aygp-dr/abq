@@ -1,136 +1,68 @@
-;;; abq.el --- Emacs support for ABQ (Agent Bus Queue) -*- lexical-binding: t; -*-
+;;; abq.el --- Emacs support for ABQ (Agent Bus Queue) -*- lexical-binding: t -*-
 
-;; Author: JW
-;; Version: 0.1.0
-;; Package-Requires: ((emacs "27.1"))
-;; Keywords: tools, processes
+;; Author: Jason Walsh
+;; URL: https://github.com/aygp-dr/abq
+;; Version: 1.0.0
+;; Package-Requires: ((emacs "27.1") (org "9.0"))
 
-;;; Commentary:
-
-;; Emacs Lisp support for ABQ org files with Graphviz dot src blocks.
-;; Provides:
-;; - org-babel setup for dot/graphviz execution
-;; - Font-lock keywords for ABQ message types in org src blocks
-;; - Interactive rendering of the state machine diagram
-;; - Batch export of dot blocks to SVG/PNG
-
-;;; Code:
+;; Used by Makefile for org-mode tangling, linting, and export.
+;; Can also be loaded interactively for ABQ development.
 
 (require 'org)
-(require 'ob-dot nil t)
 
-;;; Babel setup
+;;; Configuration
+(setq org-confirm-babel-evaluate nil)
+(setq org-element-use-cache nil)
 
-(defun abq-org-babel-setup ()
-  "Register dot/graphviz as org-babel languages for ABQ."
-  (org-babel-do-load-languages
-   'org-babel-load-languages
-   (append org-babel-load-languages
-           '((dot . t)))))
+;;; Tangling
 
-;;; Dot export
+(defun abq/tangle-file (file)
+  "Tangle FILE and report results."
+  (message "Tangling %s..." file)
+  (org-babel-tangle-file file))
 
-(defvar abq-dot-default-format "png"
-  "Default output format for dot rendering (png, svg, pdf).")
+(defun abq/detangle-file (file)
+  "Detangle back into FILE from tangled sources."
+  (message "Detangling %s..." file)
+  (with-current-buffer (find-file-noselect file)
+    (org-babel-detangle)))
 
-(defvar abq-dot-program "dot"
-  "Path to the Graphviz dot executable.")
+;;; Export
 
-(defun abq-dot-export (dot-file &optional format output-file)
-  "Export DOT-FILE to FORMAT (default `abq-dot-default-format').
-Output written to OUTPUT-FILE or derived from DOT-FILE."
-  (interactive
-   (list (read-file-name "Dot file: " nil nil t nil
-                         (lambda (f) (string-suffix-p ".dot" f)))))
-  (let* ((fmt (or format abq-dot-default-format))
-         (out (or output-file
-                  (concat (file-name-sans-extension dot-file) "." fmt)))
-         (cmd (format "%s -T%s -o %s %s"
-                      (shell-quote-argument abq-dot-program)
-                      (shell-quote-argument fmt)
-                      (shell-quote-argument (expand-file-name out))
-                      (shell-quote-argument (expand-file-name dot-file)))))
-    (message "Rendering %s -> %s" dot-file out)
-    (shell-command cmd)
-    (message "Wrote %s" out)
-    out))
+(defun abq/export-to-pdf (file)
+  "Export org FILE to PDF via LaTeX."
+  (require 'ox-latex)
+  (setq org-latex-pdf-process
+        '("pdflatex -interaction nonstopmode -output-directory %o %f"
+          "pdflatex -interaction nonstopmode -output-directory %o %f"))
+  (with-current-buffer (find-file-noselect file)
+    (org-latex-export-to-pdf)))
 
-;;; Interactive rendering
+(defun abq/export-to-html (file)
+  "Export org FILE to HTML."
+  (require 'ox-html)
+  (with-current-buffer (find-file-noselect file)
+    (org-html-export-to-html)))
 
-(defun abq-render-state-machine ()
-  "Render the ABQ state machine diagram from the project dot file.
-Looks for docs/abq-state-machine.dot relative to the project root."
-  (interactive)
-  (let* ((root (or (locate-dominating-file default-directory "abq-spec.org")
-                   default-directory))
-         (dot-file (expand-file-name "docs/abq-state-machine.dot" root)))
-    (if (file-exists-p dot-file)
-        (let ((out (abq-dot-export dot-file)))
-          (when (and (display-graphic-p)
-                     (file-exists-p out))
-            (find-file out)))
-      (user-error "State machine dot file not found: %s" dot-file))))
+(defun abq/export-to-md (file)
+  "Export org FILE to Markdown."
+  (require 'ox-md)
+  (with-current-buffer (find-file-noselect file)
+    (org-md-export-to-markdown)))
 
-;;; Font-lock for ABQ types in org buffers
+;;; Linting
 
-(defvar abq-message-types
-  '("request" "response" "broadcast" "heartbeat" "shutdown" "ping" "exec")
-  "ABQ message type keywords for font-lock highlighting.")
+(defun abq/lint-file (file)
+  "Lint org FILE and print warnings."
+  (with-current-buffer (find-file-noselect file)
+    (let ((warnings (org-lint)))
+      (when warnings
+        (dolist (w warnings)
+          (message "%s:%d: %s" file (car w) (cadr w)))))))
 
-(defvar abq-directory-names
-  '("requests" "responses" "processing" "archive" "channels" "agents")
-  "ABQ directory names for font-lock highlighting.")
+;;; Graphviz (for dot files in org)
 
-(defface abq-message-type-face
-  '((t :foreground "#007bff" :weight bold))
-  "Face for ABQ message type keywords.")
-
-(defface abq-directory-face
-  '((t :foreground "#28a745" :weight bold))
-  "Face for ABQ directory names.")
-
-(defvar abq-font-lock-keywords
-  `((,(regexp-opt abq-message-types 'words) . 'abq-message-type-face)
-    (,(regexp-opt abq-directory-names 'words) . 'abq-directory-face))
-  "Font-lock keywords for ABQ terms in org src blocks.")
-
-(defun abq-add-font-lock ()
-  "Add ABQ font-lock keywords to the current buffer."
-  (font-lock-add-keywords nil abq-font-lock-keywords))
-
-;;; Tangle and render
-
-(defun abq-tangle-and-render ()
-  "Tangle ABQ spec then render dot files."
-  (interactive)
-  (let* ((root (or (locate-dominating-file default-directory "abq-spec.org")
-                   default-directory))
-         (spec (expand-file-name "abq-spec.org" root)))
-    (when (file-exists-p spec)
-      (org-babel-tangle-file spec)
-      (abq-render-state-machine))))
-
-;;; Minor mode
-
-(define-minor-mode abq-mode
-  "Minor mode for ABQ org file support.
-Adds font-lock highlighting for ABQ message types and directory names."
-  :lighter " ABQ"
-  (if abq-mode
-      (abq-add-font-lock)
-    (font-lock-remove-keywords nil abq-font-lock-keywords))
-  (font-lock-flush))
-
-;;; Auto-activate for ABQ files
-
-(defun abq-maybe-enable ()
-  "Enable `abq-mode' if the current file looks like an ABQ org file."
-  (when (and (derived-mode-p 'org-mode)
-             (buffer-file-name)
-             (string-match-p "abq" (file-name-nondirectory (buffer-file-name))))
-    (abq-mode 1)))
-
-(add-hook 'org-mode-hook #'abq-maybe-enable)
+(add-to-list 'org-src-lang-modes '("dot" . graphviz-dot))
 
 (provide 'abq)
 ;;; abq.el ends here
