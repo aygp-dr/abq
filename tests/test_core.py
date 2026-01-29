@@ -28,6 +28,7 @@ def setup_abq_home(tmp_path):
     os.environ["ABQ_HOME"] = str(tmp_path)
     # Reimport to pick up new home
     import abq.core
+
     abq.core.ABQ_HOME = tmp_path
     init()
     yield tmp_path

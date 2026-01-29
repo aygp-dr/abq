@@ -94,6 +94,4 @@ class TestFreeBSDVersionParsing:
         info = get_watcher_info()
         if info["platform"] == "FreeBSD":
             # Version should be an integer or None
-            assert info["freebsd_version"] is None or isinstance(
-                info["freebsd_version"], int
-            )
+            assert info["freebsd_version"] is None or isinstance(info["freebsd_version"], int)

@@ -29,7 +29,9 @@ def get_git_context(pwd: Path | None = None) -> dict:
         # Get remote URL
         result = subprocess.run(
             ["git", "-C", str(pwd), "remote", "get-url", "origin"],
-            capture_output=True, text=True, timeout=5
+            capture_output=True,
+            text=True,
+            timeout=5,
         )
         if result.returncode == 0:
             remote = result.stdout.strip()
@@ -42,20 +44,26 @@ def get_git_context(pwd: Path | None = None) -> dict:
         # Get branch
         result = subprocess.run(
             ["git", "-C", str(pwd), "rev-parse", "--abbrev-ref", "HEAD"],
-            capture_output=True, text=True, timeout=5
+            capture_output=True,
+            text=True,
+            timeout=5,
         )
         branch = result.stdout.strip() if result.returncode == 0 else "unknown"
 
         # Check if worktree
         result = subprocess.run(
             ["git", "-C", str(pwd), "rev-parse", "--git-common-dir"],
-            capture_output=True, text=True, timeout=5
+            capture_output=True,
+            text=True,
+            timeout=5,
         )
         common_dir = Path(result.stdout.strip()) if result.returncode == 0 else None
 
         result = subprocess.run(
             ["git", "-C", str(pwd), "rev-parse", "--git-dir"],
-            capture_output=True, text=True, timeout=5
+            capture_output=True,
+            text=True,
+            timeout=5,
         )
         git_dir = Path(result.stdout.strip()) if result.returncode == 0 else None
 
@@ -68,7 +76,7 @@ def get_git_context(pwd: Path | None = None) -> dict:
             "remote": remote,
             "branch": branch,
             "is_worktree": is_worktree,
-            "pwd": str(pwd)
+            "pwd": str(pwd),
         }
 
     except Exception as e:
@@ -78,7 +86,7 @@ def get_git_context(pwd: Path | None = None) -> dict:
             "branch": "unknown",
             "is_worktree": False,
             "pwd": str(pwd),
-            "error": str(e)
+            "error": str(e),
         }
 
 
@@ -115,17 +123,19 @@ def init() -> Path:
     # Initialize registry if not exists
     registry = ABQ_HOME / "registry.json"
     if not registry.exists():
-        registry.write_text(json.dumps({
-            "version": VERSION,
-            "created": datetime.now(timezone.utc).isoformat(),
-            "agents": {},
-            "channels": {
-                "broadcast": {
-                    "type": "pubsub",
-                    "description": "Global broadcast channel"
-                }
-            }
-        }, indent=2))
+        registry.write_text(
+            json.dumps(
+                {
+                    "version": VERSION,
+                    "created": datetime.now(timezone.utc).isoformat(),
+                    "agents": {},
+                    "channels": {
+                        "broadcast": {"type": "pubsub", "description": "Global broadcast channel"}
+                    },
+                },
+                indent=2,
+            )
+        )
 
     return ABQ_HOME
 
@@ -149,6 +159,7 @@ def channel_list() -> list[str]:
 def channel_remove(name: str) -> bool:
     """Remove a channel. Returns True if removed."""
     import shutil
+
     channel_dir = ABQ_HOME / "channels" / name
     if channel_dir.exists():
         shutil.rmtree(channel_dir)
@@ -157,11 +168,7 @@ def channel_remove(name: str) -> bool:
 
 
 def send(
-    channel: str,
-    msg_type: str,
-    content: str,
-    reply_to: str | None = None,
-    ttl: int = 300
+    channel: str, msg_type: str, content: str, reply_to: str | None = None, ttl: int = 300
 ) -> dict:
     """Send a message to a channel. Returns the message dict."""
     context = get_git_context()
@@ -181,11 +188,7 @@ def send(
         "id": msg_id,
         "version": VERSION,
         "type": msg_type,
-        "from": {
-            "agent": context["agent"],
-            "pid": os.getpid(),
-            "pwd": context["pwd"]
-        },
+        "from": {"agent": context["agent"], "pid": os.getpid(), "pwd": context["pwd"]},
         "to": channel,
         "content": content,
         "timestamp": datetime.now(timezone.utc).isoformat(),
@@ -201,11 +204,7 @@ def send(
     return message
 
 
-def recv(
-    channel: str,
-    wait: bool = False,
-    timeout: int = 30
-) -> dict | None:
+def recv(channel: str, wait: bool = False, timeout: int = 30) -> dict | None:
     """Receive a message from a channel. Returns message dict or None."""
     channel_path = _get_channel_path(channel)
     requests_dir = channel_path / "requests"
@@ -240,11 +239,7 @@ def recv(
 
 
 def respond(
-    channel: str,
-    msg_id: str,
-    status: str = "success",
-    result: str = "",
-    error: str | None = None
+    channel: str, msg_id: str, status: str = "success", result: str = "", error: str | None = None
 ) -> dict:
     """Send a response to a received message. Returns response dict."""
     channel_path = _get_channel_path(channel)
@@ -265,13 +260,10 @@ def respond(
         "id": msg_id,
         "version": VERSION,
         "status": status,
-        "from": {
-            "agent": context["agent"],
-            "pid": os.getpid()
-        },
+        "from": {"agent": context["agent"], "pid": os.getpid()},
         "result": result,
         "error": error,
-        "timestamp": datetime.now(timezone.utc).isoformat()
+        "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
     # Write response
@@ -293,6 +285,7 @@ def status() -> dict:
     if channels_dir.exists():
         for ch in channels_dir.iterdir():
             if ch.is_dir():
+
                 def _count(subdir):
                     d = ch / subdir
                     return len(list(d.glob("*.json"))) if d.exists() else 0

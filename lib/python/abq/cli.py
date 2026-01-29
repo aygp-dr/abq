@@ -85,7 +85,7 @@ def cmd_send(args):
             msg_type=args.type,
             content=content,
             reply_to=args.reply_to,
-            ttl=args.ttl
+            ttl=args.ttl,
         )
     except FileNotFoundError as e:
         print(f"Error: {e}", file=sys.stderr)
@@ -114,11 +114,7 @@ def cmd_send(args):
 def cmd_recv(args):
     """Receive a message."""
     try:
-        msg = recv(
-            channel=args.channel,
-            wait=args.wait,
-            timeout=getattr(args, 'timeout', 30)
-        )
+        msg = recv(channel=args.channel, wait=args.wait, timeout=getattr(args, "timeout", 30))
     except FileNotFoundError as e:
         print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
@@ -147,7 +143,7 @@ def cmd_respond(args):
             msg_id=args.id,
             status=args.status,
             result=result,
-            error=args.error
+            error=args.error,
         )
     except FileNotFoundError as e:
         print(f"Error: {e}", file=sys.stderr)
@@ -199,7 +195,7 @@ def cmd_watch(args):
                     capture_output=True,
                     text=True,
                     env=env,
-                    timeout=args.timeout
+                    timeout=args.timeout,
                 )
 
                 handler_status = "success" if result.returncode == 0 else "error"
@@ -217,7 +213,7 @@ def cmd_watch(args):
                 msg_id=msg_id,
                 status=handler_status,
                 result=output.strip(),
-                error=None if handler_status == "success" else output.strip()
+                error=None if handler_status == "success" else output.strip(),
             )
 
             print(f"  -> {handler_status}: {output[:100]}")
@@ -237,7 +233,7 @@ def cmd_status(args):
     print(f"Worktree: {s['is_worktree']}")
     print()
     print("Channels:")
-    for name, counts in sorted(s['channels'].items()):
+    for name, counts in sorted(s["channels"].items()):
         print(
             f"  {name}: {counts['requests']} pending,"
             f" {counts['processing']} processing,"
@@ -261,7 +257,7 @@ def cmd_ls(args):
         print(len(messages))
         return
 
-    for msg_file in messages[:args.limit]:
+    for msg_file in messages[: args.limit]:
         msg = json.loads(msg_file.read_text())
         if args.json:
             print(json.dumps(msg))
@@ -538,7 +534,7 @@ Examples:
   abq respond my-channel req_xxx --status success --result "done"
   abq watch my-channel --handler ./process.sh
   abq status
-        """
+        """,
     )
 
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -577,7 +573,9 @@ Examples:
     p_resp.add_argument("channel", help="Channel")
     p_resp.add_argument("id", help="Message ID")
     p_resp.add_argument(
-        "--status", "-s", default="success",
+        "--status",
+        "-s",
+        default="success",
         choices=["success", "error", "pending"],
     )
     p_resp.add_argument("--result", "-r", default="", help="Result (- for stdin)")
@@ -610,8 +608,13 @@ Examples:
     # sync-remote
     p_sync = subparsers.add_parser("sync-remote", help="Sync channels with remote host via rsync")
     p_sync.add_argument("host", help="Remote host (e.g., myhost, user@host)")
-    p_sync.add_argument("direction", nargs="?", default="down",
-                        choices=["up", "down", "both"], help="Sync direction (default: down)")
+    p_sync.add_argument(
+        "direction",
+        nargs="?",
+        default="down",
+        choices=["up", "down", "both"],
+        help="Sync direction (default: down)",
+    )
     p_sync.add_argument("--delete", action="store_true", help="Delete extraneous files on receiver")
     p_sync.add_argument("--verbose", "-v", action="store_true", help="Show rsync output")
     p_sync.set_defaults(func=cmd_sync_remote)
@@ -628,8 +631,9 @@ Examples:
 
     # requeue
     p_requeue = subparsers.add_parser("requeue", help="Move stuck messages back to requests")
-    p_requeue.add_argument("--verbose", "-v", action="store_true",
-                           help="Show each requeued message")
+    p_requeue.add_argument(
+        "--verbose", "-v", action="store_true", help="Show each requeued message"
+    )
     p_requeue.set_defaults(func=cmd_requeue)
 
     # version

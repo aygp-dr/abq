@@ -33,11 +33,13 @@ def _has_inotify() -> bool:
         # Try inotify.adapters first, then pyinotify
         try:
             import inotify.adapters  # noqa: F401
+
             return True
         except ImportError:
             pass
         try:
             import pyinotify  # noqa: F401
+
             return True
         except ImportError:
             return False
@@ -45,11 +47,13 @@ def _has_inotify() -> bool:
         # FreeBSD uses pyinotify with libinotify
         try:
             import pyinotify  # noqa: F401
+
             return True
         except ImportError:
             pass
         try:
             import inotify.adapters  # noqa: F401
+
             return True
         except ImportError:
             return False
@@ -60,11 +64,13 @@ def _get_inotify_backend() -> str:
     """Determine which inotify library is available."""
     try:
         import inotify.adapters  # noqa: F401
+
         return "inotify.adapters"
     except ImportError:
         pass
     try:
         import pyinotify  # noqa: F401
+
         return "pyinotify"
     except ImportError:
         pass
@@ -75,6 +81,7 @@ def _has_watchdog() -> bool:
     """Check if watchdog library is available."""
     try:
         from watchdog.observers import Observer  # noqa: F401
+
         return True
     except ImportError:
         return False
@@ -266,6 +273,7 @@ def get_watcher_info() -> dict:
 if __name__ == "__main__":
     # Quick test / info display
     import json
+
     info = get_watcher_info()
     print(json.dumps(info, indent=2))
 
