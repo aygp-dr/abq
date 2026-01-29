@@ -35,6 +35,13 @@ htmlcov/
 *.html
 *.md.bak
 
+# Presentation artifacts (source: docs/presentations/*.org)
+docs/presentations/*.pdf
+docs/presentations/*.tex
+docs/presentations/*.aux
+docs/presentations/*.log
+docs/presentations/*.out
+
 # Tangled/generated files (source of truth: abq-spec.org)
 # Run `gmake detangle` to sync edits back before committing org source
 docs/*.dot

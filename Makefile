@@ -7,7 +7,7 @@ PYTHON ?= python3
 ORG_FILES := $(wildcard *.org) $(wildcard **/*.org)
 TANGLE_TARGET := abq-spec.org
 
-.PHONY: all help dev test lint clean install dot-render dot-tangle detangle
+.PHONY: all help dev test lint clean install dot-render dot-tangle detangle presentations
 
 all: lint test ## Run lint and tests
 
@@ -260,6 +260,36 @@ $(RESEARCH_DIR)/1704.00411.pdf:
 
 .PHONY: research-papers
 research-papers: $(RESEARCH_DIR)/2505.02279.pdf $(RESEARCH_DIR)/2502.14321.pdf $(RESEARCH_DIR)/1704.00411.pdf ## Download research papers from arxiv
+
+#---------------------------------------------------------------------------
+# Presentations (PDF export from org-mode)
+#---------------------------------------------------------------------------
+
+PRES_DIR := docs/presentations
+PRES_ORG := $(wildcard $(PRES_DIR)/*.org)
+PRES_PDF := $(PRES_ORG:.org=.pdf)
+
+# Non-phony targets - only rebuilds if org file changed
+$(PRES_DIR)/%.pdf: $(PRES_DIR)/%.org
+	@echo "Exporting $< to PDF..."
+	$(EMACS) --batch \
+		--eval "(require 'org)" \
+		--eval "(require 'ox-latex)" \
+		--eval "(setq org-latex-pdf-process '(\"pdflatex -interaction nonstopmode -output-directory %o %f\" \"pdflatex -interaction nonstopmode -output-directory %o %f\"))" \
+		--visit="$<" \
+		--eval "(org-latex-export-to-pdf)"
+	@echo "Created $@"
+
+presentations: $(PRES_PDF) ## Build presentation PDFs from org files
+	@echo "Built $(words $(PRES_PDF)) presentation PDFs"
+
+presentations-clean: ## Remove generated presentation PDFs
+	rm -f $(PRES_DIR)/*.pdf $(PRES_DIR)/*.tex $(PRES_DIR)/*.aux $(PRES_DIR)/*.log $(PRES_DIR)/*.out
+	@echo "Cleaned presentation artifacts"
+
+presentations-list: ## List available presentations
+	@echo "Presentations in $(PRES_DIR):"
+	@ls -1 $(PRES_DIR)/*.org 2>/dev/null | sed 's|.*/||; s|\.org$$||' | nl
 
 #---------------------------------------------------------------------------
 # Info
