@@ -8,22 +8,18 @@ import os
 import subprocess
 import sys
 import time
-from pathlib import Path
 
 from . import __version__
 from .core import (
-    ABQ_HOME,
-    VERSION,
-    get_git_context,
-    init,
+    _get_channel_path,
     channel_create,
     channel_list,
     channel_remove,
-    send,
+    init,
     recv,
     respond,
+    send,
     status,
-    _get_channel_path,
 )
 
 
@@ -241,7 +237,11 @@ def cmd_status(args):
     print()
     print("Channels:")
     for name, counts in sorted(s['channels'].items()):
-        print(f"  {name}: {counts['requests']} pending, {counts['processing']} processing, {counts['responses']} responses")
+        print(
+            f"  {name}: {counts['requests']} pending,"
+            f" {counts['processing']} processing,"
+            f" {counts['responses']} responses"
+        )
 
 
 def cmd_ls(args):
@@ -296,7 +296,7 @@ def cmd_sync_remote(args):
         if args.verbose:
             pass  # already printed by rsync
         else:
-            print(f"Pull complete.")
+            print("Pull complete.")
 
     if direction in ("up", "both"):
         cmd = rsync_cmd + [channels_path, remote_path]
@@ -310,7 +310,7 @@ def cmd_sync_remote(args):
         if args.verbose:
             pass
         else:
-            print(f"Push complete.")
+            print("Push complete.")
 
 
 def cmd_version(args):
@@ -370,7 +370,10 @@ Examples:
     p_resp = subparsers.add_parser("respond", help="Send response")
     p_resp.add_argument("channel", help="Channel")
     p_resp.add_argument("id", help="Message ID")
-    p_resp.add_argument("--status", "-s", default="success", choices=["success", "error", "pending"])
+    p_resp.add_argument(
+        "--status", "-s", default="success",
+        choices=["success", "error", "pending"],
+    )
     p_resp.add_argument("--result", "-r", default="", help="Result (- for stdin)")
     p_resp.add_argument("--error", "-e", help="Error message")
     p_resp.add_argument("--json", "-j", action="store_true", help="JSON output")

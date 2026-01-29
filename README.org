@@ -7,7 +7,7 @@
 [[https://github.com/aygp-dr/abq/actions/workflows/ci.yml][https://img.shields.io/github/actions/workflow/status/aygp-dr/abq/ci.yml.svg?branch=main&label=CI]]
 [[https://codecov.io/gh/aygp-dr/abq][https://img.shields.io/codecov/c/github/aygp-dr/abq.svg]]
 [[https://pypi.org/project/abq/][https://img.shields.io/pypi/v/abq.svg]]
-[[https://pypi.org/project/abq/][https://img.shields.io/pypi/pyversions/abq.svg]]
+[[https://www.python.org/downloads/][https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-blue.svg]]
 [[https://github.com/aygp-dr/abq/blob/main/LICENSE][https://img.shields.io/github/license/aygp-dr/abq.svg]]
 
 A minimal file-based message bus for coordinating AI agents across repositories, worktrees, and processes. Inspired by [[https://github.com/steveyegge/efrit][Efrit's queue system]] but generalized for any agent-to-agent communication.

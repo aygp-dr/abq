@@ -8,16 +8,15 @@ Automatically selects the best available file watching method:
 - Fallback: polling
 """
 
-import os
 import platform
 import sys
 import time
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable, Optional
 
 # Detect platform capabilities
 _PLATFORM = platform.system()
-_FREEBSD_VERSION: Optional[int] = None
+_FREEBSD_VERSION: int | None = None
 
 if _PLATFORM == "FreeBSD":
     try:
@@ -109,7 +108,7 @@ class FileWatcher:
         """Return the name of the selected backend."""
         return self._backend
 
-    def watch(self, callback: Optional[Callable[[Path], None]] = None):
+    def watch(self, callback: Callable[[Path], None] | None = None):
         """
         Watch directory for new files.
 
@@ -127,7 +126,7 @@ class FileWatcher:
         else:
             yield from self._watch_polling(callback)
 
-    def _watch_inotify(self, callback: Optional[Callable[[Path], None]] = None):
+    def _watch_inotify(self, callback: Callable[[Path], None] | None = None):
         """Watch using inotify (Linux, FreeBSD 15+)."""
         backend = _get_inotify_backend()
 
@@ -139,7 +138,7 @@ class FileWatcher:
             # Fallback to polling if no inotify available
             yield from self._watch_polling(callback)
 
-    def _watch_inotify_adapters(self, callback: Optional[Callable[[Path], None]] = None):
+    def _watch_inotify_adapters(self, callback: Callable[[Path], None] | None = None):
         """Watch using inotify.adapters library."""
         import inotify.adapters
 
@@ -160,19 +159,20 @@ class FileWatcher:
         finally:
             i.remove_watch(str(self.directory))
 
-    def _watch_pyinotify(self, callback: Optional[Callable[[Path], None]] = None):
+    def _watch_pyinotify(self, callback: Callable[[Path], None] | None = None):
         """Watch using pyinotify library (FreeBSD 15+ with libinotify)."""
-        import pyinotify
         import queue
+
+        import pyinotify
 
         file_queue: queue.Queue[Path] = queue.Queue()
 
         class EventHandler(pyinotify.ProcessEvent):
-            def process_IN_CREATE(self, event):
+            def process_IN_CREATE(self, event):  # noqa: N802
                 if event.pathname.endswith(".json"):
                     file_queue.put(Path(event.pathname))
 
-            def process_IN_MOVED_TO(self, event):
+            def process_IN_MOVED_TO(self, event):  # noqa: N802
                 if event.pathname.endswith(".json"):
                     file_queue.put(Path(event.pathname))
 
@@ -197,11 +197,12 @@ class FileWatcher:
         finally:
             notifier.stop()
 
-    def _watch_watchdog(self, callback: Optional[Callable[[Path], None]] = None):
+    def _watch_watchdog(self, callback: Callable[[Path], None] | None = None):
         """Watch using watchdog (kqueue on BSD/macOS, inotify on Linux)."""
-        from watchdog.observers import Observer
-        from watchdog.events import FileSystemEventHandler, FileCreatedEvent
         import queue
+
+        from watchdog.events import FileCreatedEvent, FileSystemEventHandler
+        from watchdog.observers import Observer
 
         file_queue: queue.Queue[Path] = queue.Queue()
 
@@ -228,7 +229,7 @@ class FileWatcher:
             observer.stop()
             observer.join()
 
-    def _watch_polling(self, callback: Optional[Callable[[Path], None]] = None):
+    def _watch_polling(self, callback: Callable[[Path], None] | None = None):
         """Watch using polling (fallback for all platforms)."""
         seen: set[str] = set()
 

@@ -9,7 +9,6 @@ import subprocess
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Optional
 
 VERSION = "1.0.0"
 ABQ_HOME = Path(os.environ.get("ABQ_HOME", Path.home() / ".abq"))
@@ -22,7 +21,7 @@ def ulid_simple() -> str:
     return f"{ts:012x}{rand}"
 
 
-def get_git_context(pwd: Optional[Path] = None) -> dict:
+def get_git_context(pwd: Path | None = None) -> dict:
     """Extract git context from current directory."""
     pwd = pwd or Path.cwd()
 
@@ -160,7 +159,7 @@ def send(
     channel: str,
     msg_type: str,
     content: str,
-    reply_to: Optional[str] = None,
+    reply_to: str | None = None,
     ttl: int = 300
 ) -> dict:
     """Send a message to a channel. Returns the message dict."""
@@ -205,7 +204,7 @@ def recv(
     channel: str,
     wait: bool = False,
     timeout: int = 30
-) -> Optional[dict]:
+) -> dict | None:
     """Receive a message from a channel. Returns message dict or None."""
     channel_path = _get_channel_path(channel)
     requests_dir = channel_path / "requests"
@@ -244,7 +243,7 @@ def respond(
     msg_id: str,
     status: str = "success",
     result: str = "",
-    error: Optional[str] = None
+    error: str | None = None
 ) -> dict:
     """Send a response to a received message. Returns response dict."""
     channel_path = _get_channel_path(channel)
@@ -293,10 +292,14 @@ def status() -> dict:
     if channels_dir.exists():
         for ch in channels_dir.iterdir():
             if ch.is_dir():
+                def _count(subdir):
+                    d = ch / subdir
+                    return len(list(d.glob("*.json"))) if d.exists() else 0
+
                 channels[ch.name] = {
-                    "requests": len(list((ch / "requests").glob("*.json"))) if (ch / "requests").exists() else 0,
-                    "processing": len(list((ch / "processing").glob("*.json"))) if (ch / "processing").exists() else 0,
-                    "responses": len(list((ch / "responses").glob("*.json"))) if (ch / "responses").exists() else 0,
+                    "requests": _count("requests"),
+                    "processing": _count("processing"),
+                    "responses": _count("responses"),
                 }
 
     return {

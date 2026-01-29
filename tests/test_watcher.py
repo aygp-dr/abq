@@ -1,12 +1,9 @@
 """Tests for the cross-platform file watcher."""
 
-import platform
 from pathlib import Path
 from unittest.mock import patch
 
-import pytest
-
-from abq.watcher import FileWatcher, get_watcher_info, _has_inotify
+from abq.watcher import FileWatcher, _has_inotify, get_watcher_info
 
 
 class TestWatcherDetection:

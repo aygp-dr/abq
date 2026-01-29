@@ -3,7 +3,6 @@
 import json
 import os
 import tempfile
-from pathlib import Path
 
 import pytest
 
@@ -11,16 +10,15 @@ import pytest
 _test_home = tempfile.mkdtemp(prefix="abq_test_")
 os.environ["ABQ_HOME"] = _test_home
 
-from abq import (
-    init,
+from abq import (  # noqa: E402
     channel_create,
     channel_list,
     channel_remove,
-    send,
+    init,
     recv,
     respond,
+    send,
     status,
-    ABQ_HOME,
 )
 
 
@@ -54,7 +52,7 @@ class TestInit:
 
 class TestChannels:
     def test_channel_create(self, setup_abq_home):
-        home = setup_abq_home
+        _home = setup_abq_home
         path = channel_create("test-agent")
         assert path.exists()
         assert (path / "requests").exists()
