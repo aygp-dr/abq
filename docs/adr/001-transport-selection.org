@@ -66,6 +66,34 @@ We lack distributed tracing for the 47-character journey from =requests/= to =pr
 
 Will revisit if we scale to 3 messages/day.
 
+* Post-Implementation Update (2026-01-28)
+
+** Actual Usage Metrics
+
+| Metric | Projected | Actual |
+|--------|-----------|--------|
+| Messages/day | ~2 | ~0.07 (2/month, if we remember) |
+| Cross-machine | No | Yes (hydra ↔ nexus via SCP) |
+| Kafka instances | 0 | 0 |
+| 3 AM pages | 0 | 0 |
+
+** Revised Options
+
+| Option | Complexity | Our Volume |
+|--------|------------|------------|
+| Kafka | 6 brokers, ZK, Schema Registry | lol |
+| ABQ | JSON files in ~/.abq | maybe overkill |
+| beads | =bd create "hey nexus, tests passed"= | probably sufficient |
+| Slack DM | "yo tests passed" | honestly? |
+
+** New Architecture Diagram
+
+#+begin_example
+nexus$ scp msg.json hydra:~/.abq/channels/x/requests/
+#+end_example
+
+Still no Kafka.
+
 * References
 
 - [[https://github.com/steveyegge/efrit][Efrit queue system]]
