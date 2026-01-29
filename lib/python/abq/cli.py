@@ -8,6 +8,7 @@ import os
 import subprocess
 import sys
 import time
+from pathlib import Path
 
 from . import __version__
 from .core import (
@@ -422,7 +423,100 @@ def cmd_check(args):
     else:
         print(f"\n{checks_passed}/{total_checks} checks passed")
 
+    # Suggest next actions
+    suggestions = []
+    if stale_count > 0:
+        suggestions.append(f"abq gc           # archive {stale_count} stale message(s)")
+    if stuck_count > 0:
+        suggestions.append(f"abq requeue      # retry {stuck_count} stuck message(s)")
+    if not abq_home.exists():
+        suggestions.append("abq init         # initialize agent bus")
+
+    if suggestions:
+        print("\nSuggested actions:")
+        for s in suggestions:
+            print(f"  {s}")
+
     sys.exit(1 if issues else 0)
+
+
+def cmd_gc(args):
+    """Garbage collect stale messages."""
+    from datetime import datetime, timezone
+
+    abq_home = Path(os.environ.get("ABQ_HOME", os.path.expanduser("~/.abq")))
+    channels_dir = abq_home / "channels"
+
+    if not channels_dir.exists():
+        print("No channels directory", file=sys.stderr)
+        sys.exit(1)
+
+    now = datetime.now(timezone.utc)
+    archived = 0
+
+    for channel_dir in channels_dir.iterdir():
+        if not channel_dir.is_dir():
+            continue
+
+        archive_dir = channel_dir / "archive"
+
+        for subdir_name in ["requests", "processing", "responses"]:
+            subdir = channel_dir / subdir_name
+            if not subdir.exists():
+                continue
+
+            for msg_file in list(subdir.glob("*.json")):
+                try:
+                    msg = json.loads(msg_file.read_text())
+                    ts = msg.get("timestamp", "")
+                    ttl = msg.get("ttl", 300)
+
+                    if ts:
+                        msg_time = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                        age = (now - msg_time).total_seconds()
+
+                        if age > ttl:
+                            archive_dir.mkdir(exist_ok=True)
+                            dest = archive_dir / f"{msg_file.stem}_{subdir_name}{msg_file.suffix}"
+                            msg_file.rename(dest)
+                            if args.verbose:
+                                print(f"Archived: {msg['id']}")
+                            archived += 1
+                except Exception:
+                    pass
+
+    print(f"Archived {archived} stale message(s)")
+
+
+def cmd_requeue(args):
+    """Move stuck messages from processing back to requests."""
+    abq_home = Path(os.environ.get("ABQ_HOME", os.path.expanduser("~/.abq")))
+    channels_dir = abq_home / "channels"
+
+    if not channels_dir.exists():
+        print("No channels directory", file=sys.stderr)
+        sys.exit(1)
+
+    requeued = 0
+
+    for channel_dir in channels_dir.iterdir():
+        if not channel_dir.is_dir():
+            continue
+
+        processing_dir = channel_dir / "processing"
+        requests_dir = channel_dir / "requests"
+
+        if not processing_dir.exists():
+            continue
+
+        for msg_file in list(processing_dir.glob("*.json")):
+            requests_dir.mkdir(exist_ok=True)
+            msg_file.rename(requests_dir / msg_file.name)
+            if args.verbose:
+                print(f"Requeued: {msg_file.stem}")
+            requeued += 1
+
+    print(f"Requeued {requeued} message(s)")
 
 
 def cmd_version(args):
@@ -526,6 +620,16 @@ Examples:
     p_check = subparsers.add_parser("check", help="Run health checks")
     p_check.add_argument("--verbose", "-v", action="store_true", help="Show all checks")
     p_check.set_defaults(func=cmd_check)
+
+    # gc
+    p_gc = subparsers.add_parser("gc", help="Archive stale messages past TTL")
+    p_gc.add_argument("--verbose", "-v", action="store_true", help="Show each archived message")
+    p_gc.set_defaults(func=cmd_gc)
+
+    # requeue
+    p_requeue = subparsers.add_parser("requeue", help="Move stuck messages back to requests")
+    p_requeue.add_argument("--verbose", "-v", action="store_true", help="Show each requeued message")
+    p_requeue.set_defaults(func=cmd_requeue)
 
     # version
     p_version = subparsers.add_parser("version", help="Show version")
