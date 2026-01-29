@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/aygp-dr/abq/schemas/request.schema.json",
+  "title": "ABQ Request Message",
+  "description": "A message sent to an ABQ channel",
+  "type": "object",
+  "required": ["id", "version", "type", "from", "to", "content", "timestamp", "ttl"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^req_[0-9a-f]+$",
+      "description": "Unique message ID (ULID-based)"
+    },
+    "version": {
+      "type": "string",
+      "const": "1.0.0",
+      "description": "Protocol version"
+    },
+    "type": {
+      "type": "string",
+      "enum": ["eval", "command", "signal", "status"],
+      "description": "Message type"
+    },
+    "from": {
+      "type": "object",
+      "required": ["agent", "pid", "pwd"],
+      "properties": {
+        "agent": {
+          "type": "string",
+          "description": "Agent identifier (git context)"
+        },
+        "pid": {
+          "type": "integer",
+          "description": "Process ID of sender"
+        },
+        "pwd": {
+          "type": "string",
+          "description": "Working directory of sender"
+        }
+      },
+      "additionalProperties": false
+    },
+    "to": {
+      "type": "string",
+      "description": "Target channel name"
+    },
+    "content": {
+      "type": "string",
+      "description": "JSON-encoded payload string"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 UTC timestamp"
+    },
+    "ttl": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Time-to-live in seconds"
+    },
+    "reply_to": {
+      "type": "string",
+      "description": "Optional message ID for request-response correlation"
+    }
+  },
+  "additionalProperties": false
+}

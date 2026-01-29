@@ -1,0 +1,54 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/aygp-dr/abq/schemas/response.schema.json",
+  "title": "ABQ Response Message",
+  "description": "A response to an ABQ request message",
+  "type": "object",
+  "required": ["id", "version", "status", "from", "result", "error", "timestamp"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^req_[0-9a-f]+$",
+      "description": "Message ID (matches the original request)"
+    },
+    "version": {
+      "type": "string",
+      "const": "1.0.0",
+      "description": "Protocol version"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["success", "error", "pending"],
+      "description": "Response status"
+    },
+    "from": {
+      "type": "object",
+      "required": ["agent", "pid"],
+      "properties": {
+        "agent": {
+          "type": "string",
+          "description": "Agent identifier (git context)"
+        },
+        "pid": {
+          "type": "integer",
+          "description": "Process ID of responder"
+        }
+      },
+      "additionalProperties": false
+    },
+    "result": {
+      "type": "string",
+      "description": "Result payload (JSON-encoded string or empty)"
+    },
+    "error": {
+      "type": ["string", "null"],
+      "description": "Error message if status is error, null otherwise"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 UTC timestamp"
+    }
+  },
+  "additionalProperties": false
+}
