@@ -1,8 +1,8 @@
 # CLI UX Review: ABQ Discoverability and Design
 
 **Reviewer**: Claude (Opus 4.5)
-**Date**: 2025-01-28
-**Status**: REVIEW COMPLETE
+**Date**: 2025-01-28 (Updated: 2026-01-28)
+**Status**: REVIEW COMPLETE - PARTIALLY IMPLEMENTED
 
 ## Executive Summary
 
@@ -15,9 +15,10 @@ Assessed ABQ's CLI design against established patterns from git, aws, gh, and be
 | `--help` at all levels | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Hierarchical subcommands | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Tab completion | ✓ | ✓ | ✓ | - | ❌ |
-| `--version` | ✓ | ✓ | ✓ | ✓ | ❌ |
+| `--version` / `version` | ✓ | ✓ | ✓ | ✓ | ✓ (subcommand) |
 | Machine-readable output (`--json`) | ✓ | ✓ | ✓ | ✓ | ✓ |
 | Status/overview command | status | sts get-caller-identity | auth status | list | ✓ |
+| Health check command | fsck | - | - | - | ✓ (`check`) |
 | Colored output | ✓ | ✓ | ✓ | ✓ | ❌ |
 | Progress indicators | ✓ | - | ✓ | - | ❌ |
 | Config file | .gitconfig | credentials | hosts.yml | - | ❌ |
@@ -92,16 +93,22 @@ Use ANSI colors for readability:
 
 ## Command Hierarchy Analysis
 
-### Current Structure
+### Current Structure (Updated 2026-01)
 
 ```
 abq
-├── send <channel> <type> [content]
-├── recv <channel>
-├── respond <channel> <id>
-├── watch <channel> --handler <script>
-├── status
-└── ls <channel> [subdir]
+├── init                              # Initialize ~/.abq
+├── version                           # Show version
+├── status                            # Show agent bus status
+├── check [-v]                        # Health checks with suggestions
+├── channel create|list [name]        # Channel management
+├── send <channel> <type> [content]   # Send message
+├── recv <channel>                    # Receive message
+├── respond <channel> <id>            # Send response
+├── watch <channel> --handler <script> # Watch and handle
+├── ls <channel> [subdir]             # List messages
+├── gc                                # Archive stale messages
+└── requeue                           # Retry stuck messages
 ```
 
 ### Comparison with Reference CLIs
@@ -318,10 +325,13 @@ $ abq --help --json
 
 ### P1 (Improve Discoverability)
 
-- [ ] Add `--version` flag
+- [x] Add `--version` flag → implemented as `abq version` subcommand
 - [ ] Add startup banner when run without args
-- [ ] Improve error messages with suggestions
-- [ ] Add `abq channel` subcommand (group channel operations)
+- [x] Improve error messages with suggestions → `abq check` provides actionable next steps
+- [x] Add `abq channel` subcommand (group channel operations) → `abq channel create|list`
+- [x] Add `abq check` command for health diagnostics
+- [x] Add `abq gc` to archive stale messages past TTL
+- [x] Add `abq requeue` to retry stuck processing messages
 
 ### P2 (Polish)
 
@@ -338,10 +348,15 @@ $ abq --help --json
 
 ## References
 
+### CLI Design
 - [Lucas Costa: UX Patterns for CLI Tools](https://www.lucasfcosta.com/blog/ux-patterns-cli-tools)
 - [Agarau: CLI for Everybody - Content Designer's Guide](https://medium.com/@adedayoagarau/cli-for-everybody-a-content-designers-guide-to-command-line-ux-39d574b4cd86)
 - [12 Factor CLI Apps](https://medium.com/@jdxcode/12-factor-cli-apps-dd3c227a0e46)
 - [CLI Guidelines](https://clig.dev/)
+
+### Related Research (wal.sh)
+- [Multi-Agent Workflow Frameworks](https://wal.sh/research/multi-agent-workflow-frameworks.html) - Compares CONTINUE (synchronous pipes) vs Beads (async persistence); ABQ fits as the message transport layer
+- [Terminal AI Agents (2025)](https://wal.sh/research/2025-terminal-ai-agents.html) - Landscape of CLI-based AI tools; ABQ enables coordination between these agents
 
 ## Verdict
 
