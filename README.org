@@ -186,7 +186,7 @@ Filesystem-based queues trade throughput for simplicity and debuggability.
 
 *** Contract Net Protocol
 
-[[http://www.fipa.org/specs/fipa00029/SC00029H.html][FIPA Contract Net]] (1980) formalized multi-agent task allocation:
+[[https://en.wikipedia.org/wiki/Contract_Net_Protocol][FIPA Contract Net]] (1980) formalized multi-agent task allocation:
 
 1. *Manager* broadcasts call-for-proposals (CFP)
 2. *Contractors* submit bids (propose)
@@ -329,7 +329,7 @@ For multi-user scenarios, consider:
 
 *** Specifications
 
-- [[http://www.fipa.org/specs/fipa00029/SC00029H.html][FIPA Contract Net Interaction Protocol]]
+- [[https://en.wikipedia.org/wiki/Contract_Net_Protocol][FIPA Contract Net Interaction Protocol]]
 - [[https://modelcontextprotocol.io/][Model Context Protocol]]
 - [[https://agent-network-protocol.com/specs/white-paper.html][Agent Network Protocol]]
 
