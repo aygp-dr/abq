@@ -1,0 +1,146 @@
+#+TITLE: ADR 002: Session Workflow Retrospective
+#+DATE: 2026-01-28
+#+STATUS: Accepted
+
+* Context
+
+This session (2026-01-28) involved two concurrent Claude Code agents working on ABQ — one on nexus (FreeBSD 15, this agent) and one on hydra (FreeBSD 14). We used beads for issue tracking, git for code coordination, and ABQ's own rsync sync for channel messaging. This ADR captures what worked, what didn't, and what we should change.
+
+* Session Metrics
+
+| Metric | Value |
+|--------+-------|
+| Commits | 30+ |
+| Beads created | 12 |
+| Beads closed | 11 |
+| Tests | 29 → 52 |
+| Coverage | ~26% → 46% |
+| CI status | red → green |
+| Review rounds | 3 (all approved) |
+| Avg bead lead time | 0.1 hours |
+
+* What Worked
+
+** Beads for Issue Tracking
+
+Beads provided persistent context across the session. Key wins:
+
+- *Dependency tracking*: =bd dep add= correctly blocked coverage verification on lint/typecheck fixes
+- *Handoff to other agent*: Session summary bead (=agent-bus-o37=) let the other agent see what we did
+- *Closure discipline*: Closing beads with =--reason= creates an audit trail
+- *Parallel creation*: Creating multiple beads in one command is efficient
+
+** Two-Agent Coordination
+
+The two agents worked on different concerns without conflicts:
+- This agent: state machine, abq.el, tangle/detangle, security, reviews, recv() fix
+- Other agent: CLI features (gc, requeue, check, version), CLI tests, formatting
+
+Coordination happened via:
+1. *git* — code changes (pull --rebase handled divergence)
+2. *bd sync* — issue tracking (beads auto-merged via JSONL)
+3. *gmake sync-both* — ABQ channel messages (rsync)
+
+** Pre-Commit Hooks
+
+The layered pre-commit hook caught issues:
+1. Beads flush (prevents stale JSONL)
+2. Detangle guard (prevents generated files without org source)
+3. Ruff lint + mypy (prevents CI failures)
+
+** Security-First Documentation
+
+Neutralizing hostnames early prevented accumulation of identifying information. The =.env= pattern is simple and well-understood.
+
+* What Didn't Work
+
+** Rebase Friction
+
+Every =bd sync= followed by =git push= hit divergent branch errors because the other agent was also pushing. The workflow was:
+
+#+begin_example
+bd sync → fails (divergent)
+git pull --rebase → sometimes conflicts
+git stash → sometimes .gitattributes blocks
+resolve → git push
+#+end_example
+
+*Root cause*: =bd sync= does a =git pull= internally but doesn't use =--rebase=.
+
+*Recommendation*: Configure =git config pull.rebase true= for this repo, or have =bd sync= use rebase by default.
+
+** pytest-cov Not Resolving via uv sync
+
+=uv sync --all-extras --dev= didn't install pytest-cov despite it being in =[project.optional-dependencies] dev=. Required manual =uv pip install pytest-cov=.
+
+*Root cause*: Likely a uv lock file issue or the venv had stale state.
+
+*Recommendation*: Add a =gmake dev= that does =uv sync --all-extras --dev= and verify all dev deps are present.
+
+** CI Failures on bd sync Commits
+
+Beads sync commits (=bd sync: <timestamp>=) that only touch =.beads/issues.jsonl= still trigger full CI. These commits never affect code quality.
+
+*Recommendation*: Add path filter to CI workflow:
+
+#+begin_src yaml
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - '.beads/**'
+      - 'docs/reviews/**'
+#+end_src
+
+** Review Documents as .md in an .org Project
+
+Round 1 reviews were written as =.md= files. This session added round 2 and 3 as =.md= too, for consistency. But the project uses org-mode.
+
+*Recommendation*: Keep reviews as markdown — they're prose documents consumed by GitHub's web UI, not tangled code. This is fine.
+
+** Coverage Gap in CLI
+
+CLI at 0% coverage isn't ideal, but the other agent addressed this (→ 46%). The issue was that CLI testing requires subprocess/integration patterns, not simple unit tests.
+
+*Recommendation*: The CLI test approach (mocking argparse, testing cmd_* functions directly) is correct. Continue expanding.
+
+* Process Changes for Next Session
+
+** 1. Set git pull.rebase for this repo
+
+#+begin_src bash
+git config pull.rebase true
+#+end_src
+
+This eliminates the divergent branch errors during =bd sync=.
+
+** 2. Add CI path filters
+
+Skip lint/test/typecheck for beads-only and docs-only commits.
+
+** 3. Start sessions with =bd ready=
+
+Before diving into work, check what's available and claimed. This prevents duplicate effort between agents.
+
+** 4. Close beads before switching tasks
+
+Don't leave beads =in_progress= when moving to a new concern. Close or update status first.
+
+** 5. Run =gmake lint test= before committing
+
+The pre-commit hook now does this, but it's faster to catch issues before staging.
+
+** 6. Use =gmake sync-both= at session boundaries
+
+Not just =bd sync= — also sync ABQ channels so the other agent gets messages.
+
+* Decision
+
+Adopt all six process changes. The two-agent workflow with beads + git + ABQ sync is viable and productive. The main friction is git rebase handling, which is solvable with configuration.
+
+* Consequences
+
+- Sessions start faster (=bd ready= gives immediate context)
+- Fewer rebase conflicts (=pull.rebase true=)
+- CI runs less often on non-code changes (path filters)
+- Both agents stay synchronized (ABQ sync at boundaries)
