@@ -1,9 +1,17 @@
-#+TITLE: Agent Bus (aq)
+#+TITLE: Agent Bus Queue (abq)
 #+AUTHOR: JW
 #+DATE: 2025-01-28
 #+STARTUP: overview
 
+[[https://github.com/dsp-dr/agent-bus/actions/workflows/ci.yml][https://img.shields.io/github/actions/workflow/status/dsp-dr/agent-bus/ci.yml?branch=main&label=CI]]
+[[https://codecov.io/gh/dsp-dr/agent-bus][https://img.shields.io/codecov/c/github/dsp-dr/agent-bus]]
+[[https://pypi.org/project/abq/][https://img.shields.io/pypi/v/abq]]
+[[https://pypi.org/project/abq/][https://img.shields.io/pypi/pyversions/abq]]
+[[https://github.com/dsp-dr/agent-bus/blob/main/LICENSE][https://img.shields.io/github/license/dsp-dr/agent-bus]]
+
 A minimal file-based message bus for coordinating AI agents across repositories, worktrees, and processes. Inspired by [[https://github.com/steveyegge/efrit][Efrit's queue system]] but generalized for any agent-to-agent communication.
+
+*Topics:* =ai-agents= =message-queue= =filesystem= =ipc= =actor-model= =python= =cli= =multi-agent= =coordination= =devtools=
 
 * Problem Statement
 
@@ -22,7 +30,7 @@ The solution should be:
 * Architecture
 
 #+begin_example
-~/.aq/
+~/.abq/
 ├── registry.json          # Agent/channel metadata
 ├── channels/
 │   ├── test-runner/       # Channel: test-runner
@@ -86,22 +94,22 @@ The solution should be:
 
 #+begin_src bash
 # Initialize
-aq-init
+abq init
 
 # Create channels
-aq-channel create test-runner
-aq-channel create app-agent
+abq channel create test-runner
+abq channel create app-agent
 
 # Terminal 1: Watch for signals
-aq watch app-agent --handler ./my-handler.sh
+abq watch app-agent --handler ./my-handler.sh
 
 # Terminal 2: Send a signal
-aq send app-agent signal '{"signal": "tests_passed"}'
+abq send app-agent signal '{"signal": "tests_passed"}'
 #+end_src
 
 * Implementation
 
-See [[file:agent-bus-spec.org][agent-bus-spec.org]] for the full tangleable implementation in Org mode.
+See [[file:abq-spec.org][abq-spec.org]] for the full tangleable implementation in Org mode.
 
 * Research: Communication Patterns for Agent Coordination
 
@@ -158,7 +166,7 @@ From [[https://www.erlang.org/doc/design_principles/des_princ.html][Erlang OTP]]
 - Supervision trees for fault tolerance
 - "Let it crash" philosophy
 
-The =aq= design maps directly:
+The =abq= design maps directly:
 - Mailbox = =requests/= directory
 - Address = =github.com/org/repo/branch=
 - Supervision = external (systemd, supervisor script)
@@ -186,17 +194,17 @@ Filesystem-based queues trade throughput for simplicity and debuggability.
 3. *Manager* selects winner(s) (accept/reject)
 4. *Contractor* performs task, reports result
 
-The =aq= protocol supports this:
+The =abq= protocol supports this:
 
 #+begin_src bash
 # Manager: CFP
-aq send broadcast signal '{"signal":"cfp","task":"analyze_logs"}'
+abq send broadcast signal '{"signal":"cfp","task":"analyze_logs"}'
 
 # Contractors respond to reply_to channel
-aq send manager signal '{"signal":"propose","bid":{"time":5}}'
+abq send manager signal '{"signal":"propose","bid":{"time":5}}'
 
 # Manager accepts
-aq send contractor-1 command "analyze /var/log/app.log"
+abq send contractor-1 command "analyze /var/log/app.log"
 #+end_src
 
 *** Publish-Subscribe
@@ -206,7 +214,7 @@ aq send contractor-1 command "analyze /var/log/app.log"
 - *Topic-based*: Subscribe to named channels
 - *Content-based*: Subscribe to message patterns
 
-The =aq broadcast= channel provides topic-based pub/sub. Content filtering happens in handlers.
+The =abqbroadcast= channel provides topic-based pub/sub. Content filtering happens in handlers.
 
 ** Why Filesystem Queues?
 
@@ -254,7 +262,7 @@ For higher throughput or more features:
 | [[https://zeromq.org/][ZeroMQ]]        | ~0.1ms   | No broker, patterns   | Library integration    |
 | [[https://redis.io/][Redis]]         | ~0.5ms   | Pub/sub, persistence  | Already running Redis  |
 
-The =aq= design prioritizes simplicity over performance. For most AI agent coordination (messages/second, not messages/millisecond), filesystem is sufficient.
+The =abq= design prioritizes simplicity over performance. For most AI agent coordination (messages/second, not messages/millisecond), filesystem is sufficient.
 
 ** File Watching
 
@@ -292,10 +300,10 @@ from watchdog.events import FileSystemEventHandler
 [[https://github.com/emcrisostomo/fswatch][fswatch]] provides cross-platform file watching:
 
 #+begin_src bash
-fswatch -0 ~/.aq/channels/my-agent/requests | xargs -0 -n1 ./handler.sh
+fswatch -0 ~/.abq/channels/my-agent/requests | xargs -0 -n1 ./handler.sh
 #+end_src
 
-The =aq watch= command uses polling (0.5s default) for portability. For lower latency, use inotify/FSEvents directly.
+The =abqwatch= command uses polling (0.5s default) for portability. For lower latency, use inotify/FSEvents directly.
 
 ** Security Considerations
 

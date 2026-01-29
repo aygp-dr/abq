@@ -1,4 +1,4 @@
-#+TITLE: Agent Bus Specification
+#+TITLE: ABQ (Agent Bus Queue) Specification
 #+AUTHOR: JW
 #+DATE: 2025-01-28
 #+PROPERTY: header-args :mkdirp t
@@ -8,7 +8,7 @@
 
 * Overview
 
-Agent Bus (=aq= - agent queue) is a minimal file-based message bus for coordinating AI agents across repositories, worktrees, and processes. Inspired by Efrit's queue system but generalized for any agent-to-agent communication.
+ABQ (Agent Bus Queue) is a minimal file-based message bus for coordinating AI agents across repositories, worktrees, and processes. Inspired by Efrit's queue system but generalized for any agent-to-agent communication.
 
 ** Design Principles
 
@@ -22,7 +22,7 @@ Agent Bus (=aq= - agent queue) is a minimal file-based message bus for coordinat
 
 #+begin_src mermaid :file images/architecture.png :exports results
 graph TB
-    subgraph "Agent Bus (~/.aq)"
+    subgraph "Agent Bus (~/.abq)"
         direction TB
         R[registry.json]
         subgraph "channels/"
@@ -44,10 +44,10 @@ graph TB
         CC2[Claude Code Agent]
     end
     
-    CC1 -->|"aq send"| C1
-    C1 -->|"aq watch"| CC2
-    CC2 -->|"aq send"| C2
-    C2 -->|"aq watch"| CC1
+    CC1 -->|"abq send"| C1
+    C1 -->|"abq watch"| CC2
+    CC2 -->|"abq send"| C2
+    C2 -->|"abq watch"| CC1
 #+end_src
 
 ** Message Flow
@@ -55,7 +55,7 @@ graph TB
 #+begin_src mermaid :file images/message-flow.png :exports results
 sequenceDiagram
     participant T as Test Agent
-    participant Q as ~/.aq/channels/
+    participant Q as ~/.abq/channels/
     participant A as App Agent
     
     T->>Q: write request JSON to requests/
@@ -73,19 +73,19 @@ sequenceDiagram
 
 ** Directory Structure
 
-#+begin_src shell :tangle ~/.local/bin/aq-init :shebang "#!/usr/bin/env bash"
+#+begin_src shell :tangle ~/.local/bin/abq-init :shebang "#!/usr/bin/env bash"
 #!/usr/bin/env bash
-# aq-init - Initialize agent bus directory structure
+# abq-init - Initialize agent bus directory structure
 set -euo pipefail
 
-AQ_HOME="${AQ_HOME:-$HOME/.aq}"
+ABQ_HOME="${ABQ_HOME:-$HOME/.abq}"
 
-mkdir -p "$AQ_HOME"/{channels,agents,logs}
-mkdir -p "$AQ_HOME"/channels/broadcast/{requests,responses,processing,archive}
+mkdir -p "$ABQ_HOME"/{channels,agents,logs}
+mkdir -p "$ABQ_HOME"/channels/broadcast/{requests,responses,processing,archive}
 
 # Initialize registry if not exists
-if [[ ! -f "$AQ_HOME/registry.json" ]]; then
-    cat > "$AQ_HOME/registry.json" << 'EOF'
+if [[ ! -f "$ABQ_HOME/registry.json" ]]; then
+    cat > "$ABQ_HOME/registry.json" << 'EOF'
 {
   "version": "1.0.0",
   "created": "'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'",
@@ -100,22 +100,22 @@ if [[ ! -f "$AQ_HOME/registry.json" ]]; then
 EOF
 fi
 
-echo "Agent bus initialized at $AQ_HOME"
+echo "Agent bus initialized at $ABQ_HOME"
 #+end_src
 
 ** Create Channel
 
-#+begin_src shell :tangle ~/.local/bin/aq-channel :shebang "#!/usr/bin/env bash"
+#+begin_src shell :tangle ~/.local/bin/abq-channel :shebang "#!/usr/bin/env bash"
 #!/usr/bin/env bash
-# aq-channel - Create or manage channels
+# abq-channel - Create or manage channels
 set -euo pipefail
 
-AQ_HOME="${AQ_HOME:-$HOME/.aq}"
+ABQ_HOME="${ABQ_HOME:-$HOME/.abq}"
 ACTION="${1:-}"
 CHANNEL="${2:-}"
 
 usage() {
-    echo "Usage: aq-channel <create|list|rm> [channel-name]"
+    echo "Usage: abq-channel <create|list|rm> [channel-name]"
     echo ""
     echo "Commands:"
     echo "  create <name>   Create a new channel"
@@ -127,16 +127,16 @@ usage() {
 case "$ACTION" in
     create)
         [[ -z "$CHANNEL" ]] && usage
-        CHANNEL_DIR="$AQ_HOME/channels/$CHANNEL"
+        CHANNEL_DIR="$ABQ_HOME/channels/$CHANNEL"
         mkdir -p "$CHANNEL_DIR"/{requests,responses,processing,archive}
         echo "Channel '$CHANNEL' created at $CHANNEL_DIR"
         ;;
     list)
-        ls -1 "$AQ_HOME/channels/" 2>/dev/null || echo "No channels found"
+        ls -1 "$ABQ_HOME/channels/" 2>/dev/null || echo "No channels found"
         ;;
     rm)
         [[ -z "$CHANNEL" ]] && usage
-        rm -rf "$AQ_HOME/channels/$CHANNEL"
+        rm -rf "$ABQ_HOME/channels/$CHANNEL"
         echo "Channel '$CHANNEL' removed"
         ;;
     *)
@@ -219,10 +219,10 @@ broadcast    -> all listening agents
 
 ** Main Entry Point
 
-#+begin_src python :tangle ~/.local/bin/aq :shebang "#!/usr/bin/env python3"
+#+begin_src python :tangle ~/.local/bin/abq :shebang "#!/usr/bin/env python3"
 #!/usr/bin/env python3
 """
-aq - Agent Queue CLI
+abq - Agent Bus Queue CLI
 
 A minimal file-based message bus for AI agent coordination.
 """
@@ -239,7 +239,7 @@ from typing import Optional
 import hashlib
 
 
-AQ_HOME = Path(os.environ.get("AQ_HOME", Path.home() / ".aq"))
+ABQ_HOME = Path(os.environ.get("ABQ_HOME", Path.home() / ".abq"))
 VERSION = "1.0.0"
 
 
@@ -330,7 +330,7 @@ def resolve_address(addr: str, context: dict) -> str:
 
 def get_channel_path(channel: str) -> Path:
     """Get path to channel directory."""
-    return AQ_HOME / "channels" / channel
+    return ABQ_HOME / "channels" / channel
 
 
 def send_message(channel: str, msg_type: str, content: str, 
@@ -344,7 +344,7 @@ def send_message(channel: str, msg_type: str, content: str,
     
     if not requests_dir.exists():
         print(f"Error: Channel '{channel}' does not exist", file=sys.stderr)
-        print(f"Create it with: aq-channel create {channel}", file=sys.stderr)
+        print(f"Create it with: abq-channel create {channel}", file=sys.stderr)
         sys.exit(1)
     
     msg_id = f"req_{ulid_simple()}"
@@ -469,7 +469,7 @@ def cmd_recv(args):
         print(f"Content: {msg['content'][:500]}")
     
     # Store processing file path for respond command
-    print(f"_AQ_PROCESSING={processing_file}", file=sys.stderr)
+    print(f"_ABQ_PROCESSING={processing_file}", file=sys.stderr)
 
 
 def cmd_respond(args):
@@ -550,11 +550,11 @@ def cmd_watch(args):
             # Execute handler
             try:
                 env = os.environ.copy()
-                env["AQ_MSG_ID"] = msg_id
-                env["AQ_MSG_TYPE"] = msg["type"]
-                env["AQ_MSG_FROM"] = msg["from"]["agent"]
-                env["AQ_MSG_CONTENT"] = msg["content"]
-                env["AQ_CHANNEL"] = args.channel
+                env["ABQ_MSG_ID"] = msg_id
+                env["ABQ_MSG_TYPE"] = msg["type"]
+                env["ABQ_MSG_FROM"] = msg["from"]["agent"]
+                env["ABQ_MSG_CONTENT"] = msg["content"]
+                env["ABQ_CHANNEL"] = args.channel
                 
                 result = subprocess.run(
                     [args.handler],
@@ -611,13 +611,13 @@ def cmd_status(args):
     
     print(f"Agent Bus Status")
     print(f"================")
-    print(f"Home: {AQ_HOME}")
+    print(f"Home: {ABQ_HOME}")
     print(f"Agent: {context['agent']}")
     print(f"PWD: {context['pwd']}")
     print(f"Worktree: {context['is_worktree']}")
     print()
     
-    channels_dir = AQ_HOME / "channels"
+    channels_dir = ABQ_HOME / "channels"
     if channels_dir.exists():
         print("Channels:")
         for ch in sorted(channels_dir.iterdir()):
@@ -659,16 +659,16 @@ def cmd_ls(args):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Agent Queue - file-based message bus for AI agents",
+        description="Agent Bus Queue - file-based message bus for AI agents",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  aq send test-runner signal '{"signal": "tests_passed", "count": 42}'
-  aq send app-agent command "deploy to staging" --wait
-  aq recv my-channel --wait
-  aq respond my-channel req_xxx --status success --result "done"
-  aq watch my-channel --handler ./process.sh
-  aq status
+  abq send test-runner signal '{"signal": "tests_passed", "count": 42}'
+  abq send app-agent command "deploy to staging" --wait
+  abq recv my-channel --wait
+  abq respond my-channel req_xxx --status success --result "done"
+  abq watch my-channel --handler ./process.sh
+  abq status
         """
     )
     
@@ -740,19 +740,19 @@ if __name__ == "__main__":
 
 ** Simple Echo Handler (Shell)
 
-#+begin_src shell :tangle ~/.local/share/aq/handlers/echo.sh :shebang "#!/usr/bin/env bash"
+#+begin_src shell :tangle ~/.local/share/abq/handlers/echo.sh :shebang "#!/usr/bin/env bash"
 #!/usr/bin/env bash
 # Echo handler - just echoes back the message content
-# Environment vars: AQ_MSG_ID, AQ_MSG_TYPE, AQ_MSG_FROM, AQ_MSG_CONTENT, AQ_CHANNEL
+# Environment vars: ABQ_MSG_ID, ABQ_MSG_TYPE, ABQ_MSG_FROM, ABQ_MSG_CONTENT, ABQ_CHANNEL
 
-echo "Received: $AQ_MSG_CONTENT"
-echo "From: $AQ_MSG_FROM"
-echo "Type: $AQ_MSG_TYPE"
+echo "Received: $ABQ_MSG_CONTENT"
+echo "From: $ABQ_MSG_FROM"
+echo "Type: $ABQ_MSG_TYPE"
 #+end_src
 
 ** Test Runner Signal Handler
 
-#+begin_src shell :tangle ~/.local/share/aq/handlers/test-signal.sh :shebang "#!/usr/bin/env bash"
+#+begin_src shell :tangle ~/.local/share/abq/handlers/test-signal.sh :shebang "#!/usr/bin/env bash"
 #!/usr/bin/env bash
 # Handle test signals and trigger appropriate actions
 set -euo pipefail
@@ -764,7 +764,7 @@ SIGNAL=$(echo "$MSG" | jq -r '.content | fromjson | .signal // empty')
 case "$SIGNAL" in
     tests_passed)
         echo "All tests passed - ready for next step"
-        # Could trigger: aq send app-agent command "deploy staging"
+        # Could trigger: abq send app-agent command "deploy staging"
         ;;
     tests_failed)
         FAILURES=$(echo "$MSG" | jq -r '.content | fromjson | .failures // 0')
@@ -783,11 +783,11 @@ esac
 
 ** Claude Code Integration Handler
 
-#+begin_src python :tangle ~/.local/share/aq/handlers/cc-bridge.py :shebang "#!/usr/bin/env python3"
+#+begin_src python :tangle ~/.local/share/abq/handlers/cc-bridge.py :shebang "#!/usr/bin/env python3"
 #!/usr/bin/env python3
 """
 Bridge handler for Claude Code agents.
-Translates aq messages into Claude Code compatible format.
+Translates abq messages into Claude Code compatible format.
 """
 
 import json
@@ -848,7 +848,7 @@ def handle_status(msg: dict) -> tuple[str, str]:
     """Handle status/health check."""
     return "success", json.dumps({
         "status": "healthy",
-        "agent": os.environ.get("AQ_MSG_FROM", "unknown"),
+        "agent": os.environ.get("ABQ_MSG_FROM", "unknown"),
         "pid": os.getpid()
     })
 
@@ -884,23 +884,23 @@ For those who prefer Ruby, here's a minimal client library:
 
 ** Ruby Client Library
 
-#+begin_src ruby :tangle ~/.local/share/aq/lib/aq.rb
+#+begin_src ruby :tangle ~/.local/share/abq/lib/abq.rb
 # frozen_string_literal: true
 
-# Agent Queue Ruby client
+# Agent Bus Queue Ruby client
 # Usage:
-#   require_relative 'aq'
-#   AQ.send('my-channel', :signal, { signal: 'done', count: 42 })
-#   msg = AQ.recv('my-channel', wait: true)
+#   require_relative 'abq'
+#   ABQ.send('my-channel', :signal, { signal: 'done', count: 42 })
+#   msg = ABQ.recv('my-channel', wait: true)
 
 require 'json'
 require 'fileutils'
 require 'time'
 require 'digest'
 
-module AQ
+module ABQ
   VERSION = '1.0.0'
-  HOME = ENV.fetch('AQ_HOME', File.expand_path('~/.aq'))
+  HOME = ENV.fetch('ABQ_HOME', File.expand_path('~/.abq'))
   
   class << self
     def ulid
@@ -938,7 +938,7 @@ module AQ
       requests_dir = File.join(channel_path(channel), 'requests')
       
       unless Dir.exist?(requests_dir)
-        raise "Channel '#{channel}' does not exist. Create with: aq-channel create #{channel}"
+        raise "Channel '#{channel}' does not exist. Create with: abq-channel create #{channel}"
       end
       
       msg_id = "req_#{ulid}"
@@ -1022,9 +1022,9 @@ end
 
 ** Ruby Handler Example
 
-#+begin_src ruby :tangle ~/.local/share/aq/handlers/example.rb :shebang "#!/usr/bin/env ruby"
+#+begin_src ruby :tangle ~/.local/share/abq/handlers/example.rb :shebang "#!/usr/bin/env ruby"
 #!/usr/bin/env ruby
-# Example Ruby handler for aq watch
+# Example Ruby handler for abq watch
 
 require 'json'
 
@@ -1057,27 +1057,27 @@ Scenario: Test repo signals app repo when tests complete.
 
 #+begin_src shell
 # After test run completes
-aq send app-agent signal '{"signal": "tests_passed", "suite": "integration", "count": 147}'
+abq send app-agent signal '{"signal": "tests_passed", "suite": "integration", "count": 147}'
 #+end_src
 
 *** In app repo (worktree: =main=)
 
 #+begin_src shell
 # Start watching for signals
-aq watch app-agent --handler ~/.local/share/aq/handlers/test-signal.sh
+abq watch app-agent --handler ~/.local/share/abq/handlers/test-signal.sh
 #+end_src
 
 ** Interactive Agent Communication
 
 #+begin_src shell
 # Terminal 1: Start a watcher
-aq-channel create my-agent
-aq watch my-agent --handler ~/.local/share/aq/handlers/cc-bridge.py
+abq-channel create my-agent
+abq watch my-agent --handler ~/.local/share/abq/handlers/cc-bridge.py
 
 # Terminal 2: Send commands
-aq send my-agent command "analyze the error logs and summarize issues"
-aq send my-agent eval "git status"
-aq send my-agent status "{}" --wait
+abq send my-agent command "analyze the error logs and summarize issues"
+abq send my-agent eval "git status"
+abq send my-agent status "{}" --wait
 #+end_src
 
 ** Programmatic Usage (Python)
@@ -1090,7 +1090,7 @@ import subprocess
 import json
 
 def aq_send(channel: str, msg_type: str, content: str, wait: bool = False) -> dict:
-    cmd = ["aq", "send", channel, msg_type, content, "--json"]
+    cmd = ["abq", "send", channel, msg_type, content, "--json"]
     if wait:
         cmd.extend(["--wait", "--timeout", "60"])
     result = subprocess.run(cmd, capture_output=True, text=True)
@@ -1112,15 +1112,15 @@ print(f"Deploy result: {response.get('result')}")
 
 For persistent watchers:
 
-#+begin_src conf :tangle ~/.config/systemd/user/aq-watcher@.service
+#+begin_src conf :tangle ~/.config/systemd/user/abq-watcher@.service
 [Unit]
 Description=Agent Queue Watcher for %i
 After=network.target
 
 [Service]
 Type=simple
-Environment=AQ_HOME=%h/.aq
-ExecStart=%h/.local/bin/aq watch %i --handler %h/.local/share/aq/handlers/%i.sh
+Environment=ABQ_HOME=%h/.abq
+ExecStart=%h/.local/bin/abq watch %i --handler %h/.local/share/abq/handlers/%i.sh
 Restart=on-failure
 RestartSec=5
 
@@ -1131,8 +1131,8 @@ WantedBy=default.target
 Enable with:
 
 #+begin_src shell
-systemctl --user enable aq-watcher@my-agent
-systemctl --user start aq-watcher@my-agent
+systemctl --user enable abq-watcher@my-agent
+systemctl --user start abq-watcher@my-agent
 #+end_src
 
 * Tangling
@@ -1141,16 +1141,16 @@ To extract all code from this document:
 
 #+begin_src shell
 # Tangle everything
-emacs --batch -l org --eval '(org-babel-tangle-file "agent-bus-spec.org")'
+emacs --batch -l org --eval '(org-babel-tangle-file "abq-spec.org")'
 
 # Make executables
-chmod +x ~/.local/bin/aq*
-chmod +x ~/.local/share/aq/handlers/*.sh
-chmod +x ~/.local/share/aq/handlers/*.py
-chmod +x ~/.local/share/aq/handlers/*.rb
+chmod +x ~/.local/bin/abq*
+chmod +x ~/.local/share/abq/handlers/*.sh
+chmod +x ~/.local/share/abq/handlers/*.py
+chmod +x ~/.local/share/abq/handlers/*.rb
 
 # Initialize
-aq-init
+abq-init
 #+end_src
 
 Or interactively: =C-c C-v t= (=org-babel-tangle=)
@@ -1159,23 +1159,23 @@ Or interactively: =C-c C-v t= (=org-babel-tangle=)
 
 | Command                    | Description                      |
 |----------------------------+----------------------------------|
-| =aq-init=                  | Initialize ~/.aq                 |
-| =aq-channel create NAME=   | Create a channel                 |
-| =aq send CHAN TYPE CONTENT= | Send message                    |
-| =aq recv CHAN [--wait]=    | Receive one message              |
-| =aq respond CHAN ID=       | Send response                    |
-| =aq watch CHAN -H SCRIPT=  | Watch and handle messages        |
-| =aq status=                | Show bus status                  |
-| =aq ls CHAN [SUBDIR]=      | List messages                    |
+| =abq-init=                  | Initialize ~/.abq                 |
+| =abq-channel create NAME=   | Create a channel                 |
+| =abq send CHAN TYPE CONTENT= | Send message                    |
+| =abq recv CHAN [--wait]=    | Receive one message              |
+| =abq respond CHAN ID=       | Send response                    |
+| =abq watch CHAN -H SCRIPT=  | Watch and handle messages        |
+| =abq status=                | Show bus status                  |
+| =abq ls CHAN [SUBDIR]=      | List messages                    |
 
 ** Environment Variables
 
 | Variable    | Default     | Description              |
 |-------------+-------------+--------------------------|
-| =AQ_HOME=   | =~/.aq=     | Agent bus home directory |
-| =AQ_MSG_ID= | (set by aq) | Current message ID       |
-| =AQ_MSG_TYPE= | (set by aq) | Current message type   |
-| =AQ_MSG_FROM= | (set by aq) | Sender agent address   |
-| =AQ_MSG_CONTENT= | (set by aq) | Message content     |
-| =AQ_CHANNEL= | (set by aq) | Current channel         |
+| =ABQ_HOME=   | =~/.abq=     | Agent bus home directory |
+| =ABQ_MSG_ID= | (set by abq) | Current message ID       |
+| =ABQ_MSG_TYPE= | (set by abq) | Current message type   |
+| =ABQ_MSG_FROM= | (set by abq) | Sender agent address   |
+| =ABQ_MSG_CONTENT= | (set by abq) | Message content     |
+| =ABQ_CHANNEL= | (set by abq) | Current channel         |
 #+end_src

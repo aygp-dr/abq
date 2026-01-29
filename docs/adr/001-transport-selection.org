@@ -34,7 +34,7 @@ We need to coordinate AI agents across repositories/worktrees on the same machin
 ** Option 2: Write JSON to a Folder
 
 #+begin_src bash
-echo '{"done":true}' > ~/.aq/channels/app/requests/req_001.json
+echo '{"done":true}' > ~/.abq/channels/app/requests/req_001.json
 #+end_src
 
 *Estimated cost*: $0

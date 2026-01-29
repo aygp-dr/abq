@@ -5,7 +5,7 @@ EMACS ?= emacs
 UV ?= uv
 PYTHON ?= python3
 ORG_FILES := $(wildcard *.org) $(wildcard **/*.org)
-TANGLE_TARGET := agent-bus-spec.org
+TANGLE_TARGET := abq-spec.org
 
 .PHONY: all help dev test lint clean install
 
