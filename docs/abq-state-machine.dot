@@ -1,0 +1,35 @@
+// ABQ Message State Machine
+// Lifecycle: requests → processing → responses + archive
+digraph abq_state_machine {
+    rankdir=LR;
+    fontname="Helvetica";
+    node [fontname="Helvetica", fontsize=11];
+    edge [fontname="Helvetica", fontsize=10];
+
+    // Directory states
+    node [shape=box, style="rounded,filled", fillcolor="#e8f4fd"];
+    requests   [label="requests/"];
+    processing [label="processing/"];
+    responses  [label="responses/"];
+    archive    [label="archive/"];
+
+    // Decision point
+    node [shape=diamond, style="filled", fillcolor="#fff3cd", fontsize=10];
+    handler [label="agent\nhandler"];
+
+    // External entry
+    node [shape=ellipse, style="filled", fillcolor="#d4edda"];
+    sender [label="sender\n(abq send)"];
+
+    // Transitions
+    sender     -> requests   [label="  send()\n  write JSON  ", color="#28a745", fontcolor="#28a745"];
+    requests   -> processing [label="  recv() / watch()\n  atomic rename  ", color="#007bff", fontcolor="#007bff"];
+    processing -> handler    [label="  read &\n  execute  ", color="#6f42c1", fontcolor="#6f42c1"];
+    handler    -> responses  [label="  respond()\n  write result  ", color="#fd7e14", fontcolor="#fd7e14"];
+    handler    -> archive    [label="  respond()\n  rename original  ", color="#6c757d", fontcolor="#6c757d"];
+
+    // Annotations
+    labelloc="b";
+    label="\nABQ Message State Machine — file-based agent bus queue lifecycle";
+    fontsize=12;
+}

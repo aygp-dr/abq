@@ -7,7 +7,7 @@ PYTHON ?= python3
 ORG_FILES := $(wildcard *.org) $(wildcard **/*.org)
 TANGLE_TARGET := abq-spec.org
 
-.PHONY: all help dev test lint clean install
+.PHONY: all help dev test lint clean install dot-render dot-tangle
 
 all: lint test ## Run lint and tests
 
@@ -158,6 +158,25 @@ export-md: ## Export org files to Markdown (GitHub-flavored)
 			--visit="$$f" \
 			--eval "(org-md-export-to-markdown)"; \
 	done
+
+#---------------------------------------------------------------------------
+# Graphviz / Dot Rendering
+#---------------------------------------------------------------------------
+
+DOT ?= dot
+DOT_FILES := $(wildcard docs/*.dot)
+DOT_SVG := $(DOT_FILES:.dot=.svg)
+DOT_PNG := $(DOT_FILES:.dot=.png)
+
+dot-render: $(DOT_PNG) $(DOT_SVG) ## Render dot files to PNG and SVG
+
+docs/%.png: docs/%.dot
+	$(DOT) -Tpng -o $@ $<
+
+docs/%.svg: docs/%.dot
+	$(DOT) -Tsvg -o $@ $<
+
+dot-tangle: tangle dot-render ## Tangle org then render dot files
 
 #---------------------------------------------------------------------------
 # Remote Sync
