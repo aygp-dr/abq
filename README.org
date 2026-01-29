@@ -12,8 +12,6 @@
 
 A minimal file-based message bus for coordinating AI agents across repositories, worktrees, and processes. Inspired by [[https://github.com/steveyegge/efrit][Efrit's queue system]] but generalized for any agent-to-agent communication.
 
-*Topics:* =ai-agents= =message-queue= =filesystem= =ipc= =actor-model= =python= =cli= =multi-agent= =coordination= =devtools=
-
 * Problem Statement
 
 When running AI agents (Claude Code, Cursor, Efrit) in separate contexts - different repos, worktrees, or processes - they need a simple way to coordinate:
