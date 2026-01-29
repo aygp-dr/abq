@@ -1,0 +1,42 @@
+#+TITLE: ABQ Presentation Materials
+#+AUTHOR: Jason Walsh
+#+DATE: 2026
+#+STARTUP: overview
+
+* CFP Proposals
+
+Presentation ideas derived from building ABQ. Focus on process and lessons
+learned, not product pitches.
+
+| # | Title                                      | Length   | Venues                        |
+|---+--------------------------------------------+----------+-------------------------------|
+| 1 | [[file:01-rebasing-over-your-coworker.org][Rebasing Over Your Coworker]]                | 25-30min | PyCon, Strange Loop           |
+| 2 | [[file:02-module-level-constants.org][Module-Level Constants Considered Harmful]]  | 20-25min | PyCon, PyTexas, testing confs |
+| 3 | [[file:03-eating-dogfood.org][Eating Our Own Dogfood Before It Exists]]    | 20-25min | FOSDEM, DevOpsDays            |
+| 4 | [[file:04-agents-md-pattern.org][The AGENTS.md Pattern]]                      | 20min    | AI Engineering, Write the Docs|
+| 5 | [[file:05-dead-links-living-code.org][Dead Links and Living Code]]                 | 25-30min | RSECon, SciPy, FOSDEM         |
+
+* Common Threads
+
+All talks share these themes:
+
+- *Process over product*: How we built it, not what it does
+- *Real examples*: Actual commits, merge conflicts, CI failures
+- *Lessons learned*: What went wrong and why
+- *No hype*: Honest reflection, not marketing
+
+* Status
+
+| Talk | Abstract | Outline | Slides | Submitted |
+|------+----------+---------+--------+-----------|
+|    1 | Draft    | Draft   | -      | -         |
+|    2 | Draft    | Draft   | -      | -         |
+|    3 | Draft    | Draft   | -      | -         |
+|    4 | Draft    | Draft   | -      | -         |
+|    5 | Draft    | Draft   | -      | -         |
+
+* Notes
+
+- Talks 1 & 2 could be combined into a longer session
+- Talk 4 works well as a lightning talk (10 min version)
+- Talk 5 fits academic/research venues better than industry

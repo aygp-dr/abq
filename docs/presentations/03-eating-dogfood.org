@@ -1,0 +1,90 @@
+#+TITLE: Eating Our Own Dogfood Before It Exists
+#+AUTHOR: Jason Walsh
+#+DATE: 2026
+#+STARTUP: overview
+
+* CFP Abstract (300 words)
+
+We needed a tool for AI agents to coordinate. "Tests passed, your turn." Simple
+message passing between processes. So we built one.
+
+The absurdity: while building ABQ (a filesystem-based message queue for agent
+coordination), we desperately needed... agent coordination. We used git rebases,
+a JSONL-based issue tracker (beads), and increasingly frantic =git pull= loops.
+We were building the highway while driving on dirt roads.
+
+This talk explores the recursive comedy of building developer tools:
+- What coordination patterns emerged organically (before we formalized them)
+- Why we needed BOTH async persistence (issues that survive sessions) AND sync
+  coordination (git for atomic state)
+- The "aha moment" when we realized ABQ was the missing layer underneath
+- How the pain of NOT having the tool informed its design
+
+No architecture diagrams. No "10x productivity" claims. Just honest reflection
+on building something you need while not having it yet.
+
+The punchline: the best developer tools come from scratching your own itch. But
+scratching an itch while the mosquito is still biting is a special kind of
+experience.
+
+* Target Venues
+
+- FOSDEM (developer rooms)
+- DevOpsDays
+- All Things Open
+- Write the Docs (tooling track)
+- Local DevOps/platform meetups
+
+* Talk Length
+
+20-25 minutes
+
+* Outline
+
+** The Itch (4 min)
+- Two AI agents, one repo
+- "How do I tell the other agent I'm done?"
+- Current options: Redis (overkill), files (ad-hoc), nothing (chaos)
+
+** The Dirt Road (6 min)
+- What we actually used: git + beads (issue tracker)
+- The =bd sync && git push= ritual
+- Merge conflicts as coordination signals
+- Why this mostly worked (and why "mostly" isn't enough)
+
+** The Missing Layer (5 min)
+- Async persistence: issues survive sessions
+- Sync coordination: git provides atomicity
+- Message passing: neither provides this cleanly
+- The "fire and forget" problem
+
+** Building While Bleeding (5 min)
+- Real examples of needing ABQ while building ABQ
+- "I wish I could just send a signal"
+- How pain informed the API design
+- The simplicity mandate: if =cat= can't debug it, it's too complex
+
+** The Recursive Insight (3 min)
+- Every good tool starts as a workaround
+- The three-layer stack: persistence + coordination + messaging
+- Why we symlinked =CLAUDE.md= to =AGENTS.md=
+
+* Key Moments
+
+** Moment: The Wish
+"I just want to run =abq send other-agent signal 'tests passed'= and move on."
+
+(We wrote this in a commit message before ABQ existed.)
+
+** Moment: The Realization
+The filesystem queue pattern isn't new. Unix spools are 50 years old. We just
+needed it for agents instead of printers.
+
+** Moment: The Design Constraint
+"Debuggable with =cat= and =jq=" became the north star. If you can't =ls= the
+queue to see what's stuck, you've over-engineered it.
+
+* Bio Blurb
+
+Jason Walsh builds tools for problems he's actively having. This approach is
+either "dogfooding" or "poor planning," depending on your perspective.

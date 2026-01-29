@@ -1,0 +1,97 @@
+#+TITLE: Rebasing Over Your Coworker: Multi-Agent Development on a Single Branch
+#+AUTHOR: Jason Walsh
+#+DATE: 2026
+#+STARTUP: overview
+
+* CFP Abstract (300 words)
+
+What happens when two AI agents work on the same codebase simultaneously? Not in
+separate feature branches with careful PR reviews, but hammering =main= together,
+rebasing over each other's commits in real-time.
+
+This talk shares lessons from building ABQ (Agent Bus Queue), a filesystem-based
+message bus for AI agent coordination. The twist: we built it while experiencing
+the exact coordination problems it's meant to solve.
+
+You'll see real merge conflicts in =.beads/issues.jsonl= (our issue tracker's
+data file), watch test suites pass locally then fail in CI due to pytest import
+ordering, and learn why "work is NOT complete until git push succeeds" had to be
+written in all caps in our =AGENTS.md=.
+
+Key takeaways:
+- Git's model handles parallel AI agent work surprisingly well
+- The rebase-and-retry loop is the new "fix conflicts and merge"
+- Module-level constants in Python create hidden test dependencies
+- You need both async persistence (issues) and sync coordination (git)
+
+No product pitch. Just war stories from the trenches of multi-agent development.
+
+* Target Venues
+
+- PyCon US/EU
+- Strange Loop
+- Local Python/DevOps meetups
+- GitMerge / Git-related conferences
+
+* Talk Length
+
+25-30 minutes + Q&A
+
+* Outline
+
+** Introduction (3 min)
+- The setup: two Claude Code sessions, one repo, one branch
+- Why we did this (building agent coordination while needing it)
+
+** The Coordination Dance (8 min)
+- Real examples of parallel commits
+- Merge conflicts in data files (=.beads/issues.jsonl=)
+- The =git pull --rebase= loop
+- When your "coworker" pushes mid-commit
+
+** The CI Surprise (8 min)
+- Tests pass locally, fail in CI
+- pytest import order differs across environments
+- Module-level =ABQ_HOME= captured at import time
+- The fix: =monkeypatch.setattr= vs manual module updates
+
+** Patterns That Emerged (5 min)
+- =AGENTS.md= as onboarding doc for AI colleagues
+- "Landing the plane" protocol
+- =bd sync && git push= as ritual
+- Why async (beads) + sync (git) are both needed
+
+** Lessons (3 min)
+- Git handles this better than expected
+- The problems are familiar (just faster)
+- Your test isolation assumptions are probably wrong
+
+* Key Slides
+
+** Slide: The Merge Conflict
+#+begin_example
+<<<<<<< HEAD
+{"id": "agent-bus-r42", "status": "closed", ...}
+=======
+{"id": "agent-bus-r42", "status": "in_progress", ...}
+>>>>>>> fix: resolve test isolation
+#+end_example
+
+** Slide: The Innocent-Looking Code
+#+begin_src python
+# Set at module import time - seems fine, right?
+ABQ_HOME = Path(os.environ.get("ABQ_HOME", Path.home() / ".abq"))
+#+end_src
+
+** Slide: The CI Log
+#+begin_example
+test_cli.py ... PASSED
+test_core.py ... PASSED
+test_protocol.py::TestResponseSchema::test_response_matches_schema FAILED
+FileNotFoundError: .../responses/req_xxx.json
+#+end_example
+
+* Bio Blurb
+
+Jason Walsh builds tools for AI agent coordination. He recently spent a week
+watching two Claude sessions fight over git commits and lived to tell about it.

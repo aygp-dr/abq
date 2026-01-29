@@ -1,0 +1,125 @@
+#+TITLE: Dead Links and Living Code: Maintaining Research Software
+#+AUTHOR: Jason Walsh
+#+DATE: 2026
+#+STARTUP: overview
+
+* CFP Abstract (300 words)
+
+The FIPA Contract Net Protocol specification, published in 1996, defined how
+software agents negotiate task allocation. In 2026, fipa.org redirects to a
+parked domain. The foundational document for multi-agent coordination is now
+accessible only via Wikipedia and the Wayback Machine.
+
+This talk uses a small project (ABQ, a filesystem-based message queue) to
+explore research software maintenance:
+
+- Dead links: fipa.org → parked domain, how we noticed and fixed it
+- Living references: arXiv PDFs as Makefile targets that actually download
+- Executable documentation: README.org with tangleable code blocks
+- The 50-year-old pattern: Unix spools (=/var/spool/mail=) as design inspiration
+
+We'll discuss why "debuggable with =cat= and =jq=" matters more than benchmarks,
+why filesystem permissions are a feature not a bug, and why the simplest
+solution often has the longest lifespan.
+
+The meta-lesson: research software dies when its documentation dies. Links rot,
+specs vanish, PDFs disappear. The code that survives is the code that carries
+its own context.
+
+* Target Venues
+
+- RSECon (Research Software Engineering Conference)
+- FOSDEM (research/academic dev rooms)
+- PyCon (research track)
+- SciPy
+- Academic departmental seminars
+- Digital preservation conferences
+
+* Talk Length
+
+25-30 minutes
+
+* Outline
+
+** The Dead Link (3 min)
+- FIPA Contract Net Protocol (1980/1996)
+- fipa.org in 2026: parked domain
+- How we found it: user clicked link, got ads
+- The fix: Wikipedia as stable reference
+
+** Link Rot in Research (5 min)
+- Studies on academic link decay
+- Half-life of URLs in papers
+- DOIs help but don't solve everything
+- The Wayback Machine as last resort
+
+** Executable References (7 min)
+*** Makefile Targets for Papers
+#+begin_src makefile
+RESEARCH_DIR := data/resources/research
+
+$(RESEARCH_DIR)/2505.02279.pdf:
+    @mkdir -p $(RESEARCH_DIR)
+    curl -L -o $@ https://arxiv.org/pdf/2505.02279.pdf
+
+research-papers: $(RESEARCH_DIR)/2505.02279.pdf ...
+#+end_src
+
+*** Why This Matters
+- =make research-papers= actually works
+- Dependencies are explicit
+- CI can verify links still resolve
+
+** README as Living Document (5 min)
+- Org-mode with tangleable code blocks
+- Examples that run, not just display
+- The protocol spec IS the code
+- Badges that reflect actual CI state
+
+** The 50-Year Pattern (5 min)
+- Unix spools: =/var/spool/mail=, =/var/spool/lpd=
+- Maildir format (1strstrstrstrstr)
+- Why filesystem queues outlive message brokers
+- "Debuggable with =ls=" as design principle
+
+** Lessons for Research Software (3 min)
+- Carry your context (don't just link to it)
+- Executable > descriptive
+- Simple outlives clever
+- Permissions are features
+
+* Key Examples
+
+** Example: The Rot
+#+begin_example
+# In README, January 2025:
+[[http://www.fipa.org/specs/fipa00029/SC00029H.html][FIPA Contract Net]]
+
+# What users see in 2026:
+"This domain is parked. Buy this domain!"
+#+end_example
+
+** Example: The Fix
+#+begin_example
+# Updated reference:
+[[https://en.wikipedia.org/wiki/Contract_Net_Protocol][FIPA Contract Net]]
+
+# Wikipedia isn't perfect, but it's maintained
+#+end_example
+
+** Example: Self-Documenting Design
+#+begin_src text
+~/.abq/
+├── channels/
+│   ├── my-agent/
+│   │   ├── requests/      ← ls this to see pending
+│   │   ├── processing/    ← ls this to see in-flight
+│   │   └── responses/     ← ls this to see replies
+#+end_src
+
+The directory structure IS the documentation.
+
+* Bio Blurb
+
+Jason Walsh builds software that references papers from the 1980s and worries
+about whether those references will still work in the 2030s.

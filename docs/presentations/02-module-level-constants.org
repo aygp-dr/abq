@@ -1,0 +1,115 @@
+#+TITLE: Module-Level Constants Considered Harmful: A CI Detective Story
+#+AUTHOR: Jason Walsh
+#+DATE: 2026
+#+STARTUP: overview
+
+* CFP Abstract (300 words)
+
+Your tests pass locally. All green. You push with confidence. CI fails. You run
+locally again. Still green. What gives?
+
+This talk dissects a real bug that took hours to diagnose: a Python module that
+reads an environment variable at import time, storing it in a module-level
+constant. Locally, each test file runs in isolation. In CI, pytest imports
+modules once and caches them. When =test_cli.py= imports first (no env var set),
+the constant gets the wrong value. When =test_protocol.py= runs later, it's
+already too late.
+
+We'll trace through:
+- How Python's import system caches modules
+- Why pytest's collection phase matters
+- The difference between =os.environ= and module constants
+- Three fix patterns: =monkeypatch.setattr=, reimport tricks, lazy evaluation
+
+This isn't about AI or fancy tools. It's about a fundamental Python gotcha that
+bites everyone eventually. The AI agent context just made it happen faster and
+more visibly.
+
+You'll leave knowing how to:
+- Identify import-time vs runtime evaluation issues
+- Write tests that don't depend on import order
+- Use =monkeypatch= correctly for module-level state
+- Audit your own codebase for similar landmines
+
+* Target Venues
+
+- PyCon (any regional)
+- PyTexas, PyOhio, etc.
+- Testing-focused conferences (PyTest conf)
+- Company tech talks / lunch-and-learns
+
+* Talk Length
+
+20-25 minutes (good lightning talk candidate at 10 min)
+
+* Outline
+
+** The Crime Scene (3 min)
+- CI log showing the failure
+- Local run showing success
+- The "it works on my machine" moment
+
+** The Investigation (7 min)
+- Reading the traceback carefully
+- =FileNotFoundError= for a file that should exist
+- Tracing the path construction
+- Finding the module-level constant
+
+** The Culprit (5 min)
+#+begin_src python
+# core.py line 14
+ABQ_HOME = Path(os.environ.get("ABQ_HOME", Path.home() / ".abq"))
+#+end_src
+- Import-time evaluation
+- pytest module caching
+- Why test order matters
+
+** The Fixes (5 min)
+*** Fix 1: monkeypatch.setattr
+#+begin_src python
+def test_foo(monkeypatch, tmp_path):
+    monkeypatch.setattr(core, "ABQ_HOME", tmp_path)
+#+end_src
+
+*** Fix 2: Lazy evaluation
+#+begin_src python
+def get_abq_home():
+    return Path(os.environ.get("ABQ_HOME", Path.home() / ".abq"))
+#+end_src
+
+*** Fix 3: Reimport (ugly but works)
+#+begin_src python
+import importlib
+importlib.reload(core)
+#+end_src
+
+** Prevention (3 min)
+- Audit for module-level =os.environ= reads
+- Prefer functions over constants for config
+- Test with =pytest --randomly= to catch order dependencies
+
+* Key Code Samples
+
+** The Bug
+#+begin_src python
+# test_cli.py - runs first, imports abq.core
+from abq import cli  # ABQ_HOME now set to ~/.abq
+
+# test_protocol.py - runs second
+os.environ["ABQ_HOME"] = "/tmp/test"  # Too late!
+from abq import send  # Module already cached with wrong path
+#+end_src
+
+** The Fix
+#+begin_src python
+@pytest.fixture(autouse=True)
+def setup_abq_home(tmp_path, monkeypatch):
+    monkeypatch.setattr(core, "ABQ_HOME", tmp_path)
+    monkeypatch.setenv("ABQ_HOME", str(tmp_path))
+    yield tmp_path
+#+end_src
+
+* Bio Blurb
+
+Jason Walsh debugs Python for fun and occasionally profit. He's mass-produced
+this exact bug at least three times and finally learned his lesson.

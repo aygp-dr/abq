@@ -1,0 +1,122 @@
+#+TITLE: The AGENTS.md Pattern: Instructions for Your Robot Colleagues
+#+AUTHOR: Jason Walsh
+#+DATE: 2026
+#+STARTUP: overview
+
+* CFP Abstract (300 words)
+
+README.md tells humans about your project. CONTRIBUTING.md tells humans how to
+contribute. What tells AI agents how to work in your codebase?
+
+Enter =AGENTS.md= (aliased as =CLAUDE.md= for Claude Code, =CURSOR.md= for
+Cursor, etc.). A new documentation pattern emerging from teams using AI coding
+assistants.
+
+This talk covers what we learned writing agent instructions for a real project:
+- Why "work is NOT complete until git push succeeds" had to be in all caps
+- The "Landing the Plane" protocol for session handoffs
+- Quick reference commands vs. detailed workflows
+- What agents need that humans don't (and vice versa)
+
+We'll examine real =AGENTS.md= files, show what works and what doesn't, and
+discuss the meta-question: if you're writing instructions for an AI, are you
+programming or documenting?
+
+Key patterns:
+- Explicit completion criteria (agents don't infer "done")
+- Command cheatsheets (agents forget between sessions)
+- Failure recovery steps (agents need escape hatches)
+- Symlinks for tool-specific filenames (=CLAUDE.md -> AGENTS.md=)
+
+This isn't about prompt engineering tricks. It's about creating shared context
+that persists across sessions with stateless collaborators.
+
+* Target Venues
+
+- AI Engineering Summit
+- Local AI/ML meetups
+- Write the Docs
+- DevRelCon
+- Internal tech talks at companies using AI assistants
+
+* Talk Length
+
+20 minutes (good lightning talk candidate)
+
+* Outline
+
+** The Problem (3 min)
+- AI assistants are stateless between sessions
+- Each session starts fresh
+- "Where were we?" doesn't work
+- READMEs are for humans, not agents
+
+** The Pattern (5 min)
+- =AGENTS.md= as onboarding doc for AI
+- Symlinks: =CLAUDE.md=, =CURSOR.md=, =COPILOT.md=
+- What to include vs. what to skip
+
+** Real Examples (7 min)
+*** Quick Reference Block
+#+begin_src markdown
+## Quick Reference
+```bash
+bd ready              # Find available work
+bd show <id>          # View issue details
+bd close <id>         # Complete work
+bd sync               # Sync with git
+```
+#+end_src
+
+*** The "Landing the Plane" Protocol
+#+begin_src markdown
+## Session Completion
+
+**MANDATORY WORKFLOW:**
+1. Run quality gates
+2. Update issue status
+3. PUSH TO REMOTE (this is MANDATORY)
+4. Verify: `git status` shows "up to date"
+#+end_src
+
+*** Why ALL CAPS?
+#+begin_src markdown
+**CRITICAL RULES:**
+- Work is NOT complete until `git push` succeeds
+- NEVER stop before pushing
+- NEVER say "ready to push when you are" - YOU must push
+#+end_src
+
+** Anti-Patterns (3 min)
+- Too much context (agents have limits too)
+- Assuming memory between sessions
+- Instructions that require judgment calls
+- Missing escape hatches for failures
+
+** The Meta Question (2 min)
+- Is this documentation or programming?
+- Natural language as interface
+- The convergence of docs and prompts
+
+* Key Insights
+
+** Insight 1: Explicit Completion Criteria
+Humans infer when they're "done." Agents need explicit checklists.
+
+** Insight 2: Command Over Explanation
+"Run =bd sync && git push=" beats "synchronize your changes with the remote."
+
+** Insight 3: Failure Modes Matter
+"If push fails, resolve and retry until it succeeds" - agents need recovery paths.
+
+** Insight 4: The Symlink Trick
+Different tools look for different files. One source of truth, multiple names.
+#+begin_src bash
+ln -s AGENTS.md CLAUDE.md
+ln -s AGENTS.md CURSOR.md
+#+end_src
+
+* Bio Blurb
+
+Jason Walsh writes documentation for humans and instructions for robots. He's
+not entirely sure which is harder.
