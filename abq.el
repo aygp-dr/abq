@@ -78,5 +78,18 @@
 ;; which org-babel uses for link markers in tangled .dot files.
 (add-to-list 'org-src-lang-modes '("dot" . c))
 
+;; Define comment syntax for graphviz-dot-mode (needed for tangling with :comments)
+(defun abq/setup-graphviz-comments ()
+  "Set up comment syntax for graphviz-dot files."
+  (setq-local comment-start "// ")
+  (setq-local comment-end ""))
+
+;; Apply to graphviz-dot-mode if available, otherwise create minimal mode
+(with-eval-after-load 'graphviz-dot-mode
+  (add-hook 'graphviz-dot-mode-hook #'abq/setup-graphviz-comments))
+
+;; Fallback: define comment vars for dot tangling in batch mode
+(add-to-list 'org-src-lang-modes '("dot" . c))  ; Use c-mode comments as fallback
+
 (provide 'abq)
 ;;; abq.el ends here
