@@ -73,7 +73,7 @@ Will revisit if we scale to 3 messages/day.
 | Metric | Projected | Actual |
 |--------|-----------|--------|
 | Messages/day | ~2 | ~0.07 (2/month, if we remember) |
-| Cross-machine | No | Yes (hydra ↔ nexus via SCP) |
+| Cross-machine | No | Yes (host-a ↔ host-b via SCP) |
 | Kafka instances | 0 | 0 |
 | 3 AM pages | 0 | 0 |
 
@@ -83,13 +83,13 @@ Will revisit if we scale to 3 messages/day.
 |--------|------------|------------|
 | Kafka | 6 brokers, ZK, Schema Registry | lol |
 | ABQ | JSON files in ~/.abq | maybe overkill |
-| beads | =bd create "hey nexus, tests passed"= | probably sufficient |
+| beads | =bd create "hey host-a, tests passed"= | probably sufficient |
 | Slack DM | "yo tests passed" | honestly? |
 
 ** New Architecture Diagram
 
 #+begin_example
-nexus$ scp msg.json hydra:~/.abq/channels/x/requests/
+host-a$ scp msg.json $REMOTE_HOST:~/.abq/channels/x/requests/
 #+end_example
 
 Still no Kafka.

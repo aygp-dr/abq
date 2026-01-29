@@ -400,7 +400,7 @@ Examples:
 
     # sync-remote
     p_sync = subparsers.add_parser("sync-remote", help="Sync channels with remote host via rsync")
-    p_sync.add_argument("host", help="Remote host (e.g., hydrabos, user@host)")
+    p_sync.add_argument("host", help="Remote host (e.g., myhost, user@host)")
     p_sync.add_argument("direction", nargs="?", default="down",
                         choices=["up", "down", "both"], help="Sync direction (default: down)")
     p_sync.add_argument("--delete", action="store_true", help="Delete extraneous files on receiver")
