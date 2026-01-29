@@ -237,6 +237,31 @@ clean-all: clean ## Clean everything including tangled files
 	@echo "Manually remove: ~/.local/bin/abq* ~/.local/share/abq/"
 
 #---------------------------------------------------------------------------
+# Research Papers (downloaded to data/resources/research/)
+#---------------------------------------------------------------------------
+
+RESEARCH_DIR := data/resources/research
+
+# Non-phony targets - only downloads if file doesn't exist
+$(RESEARCH_DIR)/2505.02279.pdf:
+	@mkdir -p $(RESEARCH_DIR)
+	curl -L -o $@ https://arxiv.org/pdf/2505.02279.pdf
+	@echo "Downloaded: Survey of Agent Interoperability Protocols (MCP, ACP, A2A, ANP)"
+
+$(RESEARCH_DIR)/2502.14321.pdf:
+	@mkdir -p $(RESEARCH_DIR)
+	curl -L -o $@ https://arxiv.org/pdf/2502.14321.pdf
+	@echo "Downloaded: Beyond Self-Talk - Multi-Agent Communication Survey"
+
+$(RESEARCH_DIR)/1704.00411.pdf:
+	@mkdir -p $(RESEARCH_DIR)
+	curl -L -o $@ https://arxiv.org/pdf/1704.00411.pdf
+	@echo "Downloaded: Survey of Distributed Message Broker Queues"
+
+.PHONY: research-papers
+research-papers: $(RESEARCH_DIR)/2505.02279.pdf $(RESEARCH_DIR)/2502.14321.pdf $(RESEARCH_DIR)/1704.00411.pdf ## Download research papers from arxiv
+
+#---------------------------------------------------------------------------
 # Info
 #---------------------------------------------------------------------------
 
