@@ -136,6 +136,68 @@ abq send test command "do thing" --wait --timeout 5
 *** TODO Linux (inotify)
 *** TODO FreeBSD (kqueue)
 
+** Cross-System Tests
+
+*** DONE FreeBSD 14 -> FreeBSD 15 (via Tailscale + SSH)
+
+Validated 2026-01-28: cross-machine messaging between two FreeBSD hosts
+connected via Tailscale VPN, using SSH+SCP as the transport layer.
+
+**** Test Environment
+
+| Host | Tailscale Name | OS | Watcher Backend | inotify |
+|--------+----------------+--------------------+-----------------+---------|
+| nexus | nexusbos | FreeBSD 15.0-RELEASE | inotify (pyinotify) | Yes (native) |
+| hydra | hydrabos | FreeBSD 14.3-RELEASE-p7 | polling | No |
+
+**** Procedure
+
+#+begin_src bash
+# 1. Setup: ensure SSH key auth via Tailscale (one-time)
+ssh-copy-id hydrabos
+
+# 2. On nexus: init abq and create receiving channel
+uv run abq init
+uv run abq channel create nexus-reports
+
+# 3. On hydra (via SSH): pull latest, init abq, send message
+ssh hydrabos 'cd ~/ghq/github.com/aygp-dr/abq && git pull && uv sync'
+ssh hydrabos 'cd ~/ghq/github.com/aygp-dr/abq && uv run abq init && \
+  uv run abq send nexus-reports signal \
+    "{\"signal\": \"freebsd15_test\", \"pyinotify\": true, \
+      \"version\": \"15.0-RELEASE\", \"from_host\": \"hydra\", \
+      \"from_os\": \"FreeBSD 14.3\"}"'
+
+# 4. Transfer message file from hydra to nexus
+scp hydrabos:~/.abq/channels/nexus-reports/requests/req_*.json \
+    ~/.abq/channels/nexus-reports/requests/
+
+# 5. On nexus: receive and verify
+uv run abq recv nexus-reports
+#+end_src
+
+**** Expected Output
+
+#+begin_example
+ID: req_019c0764eed8e146bcc5ec
+Type: signal
+From: github.com/aygp-dr/abq/main
+Content: {"signal": "freebsd15_test", "pyinotify": true, "version": "15.0-RELEASE", "from_host": "hydra", "from_os": "FreeBSD 14.3"}
+#+end_example
+
+**** Observations
+
+- ABQ is filesystem-based, so cross-machine messaging requires an
+  explicit transport (SCP, rsync, shared NFS, etc.)
+- Tailscale provides stable addressing (~100.x.x.x) across networks
+- FreeBSD 15 correctly uses =pyinotify= via native =libinotify=
+- FreeBSD 14 correctly falls back to polling (no inotify support)
+- Message format is preserved across hosts with no corruption
+
+*** TODO Linux -> FreeBSD (inotify on both sides)
+*** TODO macOS -> FreeBSD (kqueue -> inotify)
+*** TODO Shared NFS transport (no SCP needed)
+
 * Test Fixtures
 
 ** Sample Messages
@@ -236,6 +298,7 @@ abq ls test-agent archive
 |-----------+--------+---------|
 | core.py | 90% | ~85% |
 | cli.py | 80% | ~50% |
+| watcher.py | 80% | ~70% |
 | Integration | 70% | 0% |
 
 * CI Configuration
