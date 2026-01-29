@@ -632,7 +632,9 @@ Examples:
     # requeue
     p_requeue = subparsers.add_parser("requeue", help="Move stuck messages back to requests")
     p_requeue.add_argument(
-        "--verbose", "-v", action="store_true",
+        "--verbose",
+        "-v",
+        action="store_true",
         help="Show each requeued message",
     )
     p_requeue.set_defaults(func=cmd_requeue)
