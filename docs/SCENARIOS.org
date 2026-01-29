@@ -1025,7 +1025,7 @@ abq channel create test-runner
 abq channel create app-agent
 
 # Run scenario 1
-cd scenarios/01-test-runner
+cd docs/scenarios/01-test-runner
 ./test-agent.sh &
 
 # In another terminal

@@ -296,9 +296,9 @@ abq ls test-agent archive
 
 | Component | Target | Current |
 |-----------+--------+---------|
-| core.py | 90% | ~85% |
-| cli.py | 80% | ~50% |
-| watcher.py | 80% | ~70% |
+| core.py | 90% | 95% |
+| cli.py | 80% | 59% |
+| watcher.py | 80% | 34% |
 | Integration | 70% | 0% |
 
 * CI Configuration
@@ -332,3 +332,4 @@ jobs:
 
     - name: Lint
       run: uv run ruff check lib/python/abq tests
+#+end_src

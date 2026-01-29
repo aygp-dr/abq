@@ -4,7 +4,7 @@
 
 * Context
 
-This session (2026-01-28) involved two concurrent Claude Code agents working on ABQ — one on nexus (FreeBSD 15, this agent) and one on hydra (FreeBSD 14). We used beads for issue tracking, git for code coordination, and ABQ's own rsync sync for channel messaging. This ADR captures what worked, what didn't, and what we should change.
+This session (2026-01-28) involved two concurrent Claude Code agents working on ABQ — one on host-a (FreeBSD 15, this agent) and one on host-b (FreeBSD 14). We used beads for issue tracking, git for code coordination, and ABQ's own rsync sync for channel messaging. This ADR captures what worked, what didn't, and what we should change.
 
 * Session Metrics
 
