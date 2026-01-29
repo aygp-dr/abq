@@ -1,9 +1,11 @@
 """Tests for the CLI module."""
 
+import json
 import subprocess
 import sys
 from argparse import Namespace
 
+import abq.core as _core
 import pytest
 from abq import cli
 
@@ -366,3 +368,355 @@ class TestCLIChannel:
         assert result.returncode == 0
         assert "test-channel" in result.stdout
         assert (tmp_path / "channels" / "test-channel").exists()
+
+
+class TestCmdSendRecvRespond:
+    """Test send → recv → respond cycle via direct cmd calls."""
+
+    def _setup(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(_core, "ABQ_HOME", tmp_path)
+        monkeypatch.setenv("ABQ_HOME", str(tmp_path))
+        _core.init()
+
+    def test_send_json_output(self, tmp_path, monkeypatch, capsys):
+        self._setup(tmp_path, monkeypatch)
+        _core.channel_create("ch1")
+        args = Namespace(
+            channel="ch1",
+            type="signal",
+            content='{"ok": true}',
+            reply_to=None,
+            ttl=300,
+            wait=False,
+            json=True,
+        )
+        cli.cmd_send(args)
+        captured = capsys.readouterr()
+        msg = json.loads(captured.out)
+        assert msg["type"] == "signal"
+        assert msg["to"] == "ch1"
+
+    def test_send_error_no_channel(self, tmp_path, monkeypatch, capsys):
+        self._setup(tmp_path, monkeypatch)
+        args = Namespace(
+            channel="nonexistent",
+            type="signal",
+            content="{}",
+            reply_to=None,
+            ttl=300,
+            wait=False,
+            json=False,
+        )
+        with pytest.raises(SystemExit) as exc:
+            cli.cmd_send(args)
+        assert exc.value.code == 1
+
+    def test_recv_message(self, tmp_path, monkeypatch, capsys):
+        self._setup(tmp_path, monkeypatch)
+        _core.channel_create("ch2")
+        _core.send("ch2", "command", '{"cmd": "test"}')
+        args = Namespace(channel="ch2", wait=False, json=False, timeout=30)
+        cli.cmd_recv(args)
+        captured = capsys.readouterr()
+        assert "ID:" in captured.out
+        assert "Type: command" in captured.out
+
+    def test_recv_json_output(self, tmp_path, monkeypatch, capsys):
+        self._setup(tmp_path, monkeypatch)
+        _core.channel_create("ch3")
+        _core.send("ch3", "signal", '{"x": 1}')
+        args = Namespace(channel="ch3", wait=False, json=True, timeout=30)
+        cli.cmd_recv(args)
+        captured = capsys.readouterr()
+        msg = json.loads(captured.out)
+        assert msg["type"] == "signal"
+
+    def test_recv_error_no_channel(self, tmp_path, monkeypatch):
+        self._setup(tmp_path, monkeypatch)
+        args = Namespace(channel="nonexistent", wait=False, json=False, timeout=30)
+        with pytest.raises(SystemExit) as exc:
+            cli.cmd_recv(args)
+        assert exc.value.code == 1
+
+    def test_respond_success(self, tmp_path, monkeypatch, capsys):
+        self._setup(tmp_path, monkeypatch)
+        _core.channel_create("ch4")
+        sent = _core.send("ch4", "command", "do it")
+        _core.recv("ch4")
+        args = Namespace(
+            channel="ch4",
+            id=sent["id"],
+            status="success",
+            result="done",
+            error=None,
+            json=False,
+        )
+        cli.cmd_respond(args)
+        captured = capsys.readouterr()
+        assert "Response sent" in captured.out
+        assert sent["id"] in captured.out
+
+    def test_respond_json_output(self, tmp_path, monkeypatch, capsys):
+        self._setup(tmp_path, monkeypatch)
+        _core.channel_create("ch5")
+        sent = _core.send("ch5", "signal", "{}")
+        _core.recv("ch5")
+        args = Namespace(
+            channel="ch5",
+            id=sent["id"],
+            status="success",
+            result="ok",
+            error=None,
+            json=True,
+        )
+        cli.cmd_respond(args)
+        captured = capsys.readouterr()
+        resp = json.loads(captured.out)
+        assert resp["status"] == "success"
+
+    def test_respond_error_no_message(self, tmp_path, monkeypatch):
+        self._setup(tmp_path, monkeypatch)
+        _core.channel_create("ch6")
+        args = Namespace(
+            channel="ch6",
+            id="req_fake",
+            status="success",
+            result="",
+            error=None,
+            json=False,
+        )
+        with pytest.raises(SystemExit) as exc:
+            cli.cmd_respond(args)
+        assert exc.value.code == 1
+
+
+class TestCmdChannelDirect:
+    """Test cmd_channel paths via direct call with proper ABQ_HOME patching."""
+
+    def _setup(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(_core, "ABQ_HOME", tmp_path)
+        monkeypatch.setenv("ABQ_HOME", str(tmp_path))
+        _core.init()
+
+    def test_channel_create_no_name(self, tmp_path, monkeypatch, capsys):
+        self._setup(tmp_path, monkeypatch)
+        args = Namespace(action="create", name=None)
+        with pytest.raises(SystemExit) as exc:
+            cli.cmd_channel(args)
+        assert exc.value.code == 1
+
+    def test_channel_rm(self, tmp_path, monkeypatch, capsys):
+        self._setup(tmp_path, monkeypatch)
+        _core.channel_create("removeme")
+        args = Namespace(action="rm", name="removeme")
+        cli.cmd_channel(args)
+        captured = capsys.readouterr()
+        assert "removed" in captured.out
+
+    def test_channel_rm_no_name(self, tmp_path, monkeypatch):
+        self._setup(tmp_path, monkeypatch)
+        args = Namespace(action="rm", name=None)
+        with pytest.raises(SystemExit) as exc:
+            cli.cmd_channel(args)
+        assert exc.value.code == 1
+
+    def test_channel_rm_nonexistent(self, tmp_path, monkeypatch):
+        self._setup(tmp_path, monkeypatch)
+        args = Namespace(action="rm", name="ghost")
+        with pytest.raises(SystemExit) as exc:
+            cli.cmd_channel(args)
+        assert exc.value.code == 1
+
+    def test_channel_list(self, tmp_path, monkeypatch, capsys):
+        self._setup(tmp_path, monkeypatch)
+        _core.channel_create("listed")
+        args = Namespace(action="list", name=None)
+        cli.cmd_channel(args)
+        captured = capsys.readouterr()
+        assert "listed" in captured.out
+        assert "broadcast" in captured.out
+
+
+class TestCmdLsDirect:
+    """Test cmd_ls with messages present."""
+
+    def _setup(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(_core, "ABQ_HOME", tmp_path)
+        monkeypatch.setenv("ABQ_HOME", str(tmp_path))
+        _core.init()
+
+    def test_ls_with_messages(self, tmp_path, monkeypatch, capsys):
+        self._setup(tmp_path, monkeypatch)
+        _core.channel_create("lsme")
+        _core.send("lsme", "signal", '{"data": "test"}')
+        _core.send("lsme", "command", "run")
+        args = Namespace(
+            channel="lsme",
+            subdir=None,
+            limit=20,
+            oldest_first=False,
+            count=False,
+            json=False,
+        )
+        cli.cmd_ls(args)
+        captured = capsys.readouterr()
+        assert "signal" in captured.out
+        assert "command" in captured.out
+
+    def test_ls_json_output(self, tmp_path, monkeypatch, capsys):
+        self._setup(tmp_path, monkeypatch)
+        _core.channel_create("lsjson")
+        _core.send("lsjson", "signal", '{"x": 1}')
+        args = Namespace(
+            channel="lsjson",
+            subdir=None,
+            limit=20,
+            oldest_first=True,
+            count=False,
+            json=True,
+        )
+        cli.cmd_ls(args)
+        captured = capsys.readouterr()
+        msg = json.loads(captured.out.strip())
+        assert msg["type"] == "signal"
+
+    def test_ls_nonexistent_subdir(self, tmp_path, monkeypatch):
+        self._setup(tmp_path, monkeypatch)
+        _core.channel_create("lsfail")
+        args = Namespace(
+            channel="lsfail",
+            subdir="bogus",
+            limit=20,
+            oldest_first=False,
+            count=False,
+            json=False,
+        )
+        with pytest.raises(SystemExit) as exc:
+            cli.cmd_ls(args)
+        assert exc.value.code == 1
+
+    def test_ls_count_with_messages(self, tmp_path, monkeypatch, capsys):
+        self._setup(tmp_path, monkeypatch)
+        _core.channel_create("lscount")
+        _core.send("lscount", "signal", "{}")
+        _core.send("lscount", "signal", "{}")
+        args = Namespace(
+            channel="lscount",
+            subdir=None,
+            limit=20,
+            oldest_first=False,
+            count=True,
+            json=False,
+        )
+        cli.cmd_ls(args)
+        captured = capsys.readouterr()
+        assert "2" in captured.out
+
+
+class TestCmdStatusDirect:
+    """Test cmd_status with proper ABQ_HOME patching."""
+
+    def test_status_with_channels(self, tmp_path, monkeypatch, capsys):
+        monkeypatch.setattr(_core, "ABQ_HOME", tmp_path)
+        monkeypatch.setenv("ABQ_HOME", str(tmp_path))
+        _core.init()
+        _core.channel_create("st-ch")
+        _core.send("st-ch", "signal", "{}")
+        args = Namespace()
+        cli.cmd_status(args)
+        captured = capsys.readouterr()
+        assert "st-ch" in captured.out
+        assert "1 pending" in captured.out
+
+
+class TestCmdInitDirect:
+    """Test cmd_init with proper ABQ_HOME patching."""
+
+    def test_init_creates_structure(self, tmp_path, monkeypatch, capsys):
+        monkeypatch.setattr(_core, "ABQ_HOME", tmp_path)
+        monkeypatch.setenv("ABQ_HOME", str(tmp_path))
+        args = Namespace()
+        cli.cmd_init(args)
+        captured = capsys.readouterr()
+        assert "initialized" in captured.out
+        assert (tmp_path / "channels").exists()
+
+
+class TestCmdGcDirect:
+    """Test gc with stale messages."""
+
+    def test_gc_archives_stale(self, tmp_path, monkeypatch, capsys):
+        monkeypatch.setattr(_core, "ABQ_HOME", tmp_path)
+        monkeypatch.setenv("ABQ_HOME", str(tmp_path))
+        _core.init()
+        _core.channel_create("gcch")
+        # Send a message with ttl=0 so it's immediately stale
+        msg = _core.send("gcch", "signal", "{}", ttl=0)
+        args = Namespace(verbose=True)
+        cli.cmd_gc(args)
+        captured = capsys.readouterr()
+        assert "Archived 1" in captured.out
+        assert msg["id"] in captured.out
+
+    def test_gc_no_channels(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(_core, "ABQ_HOME", tmp_path)
+        monkeypatch.setenv("ABQ_HOME", str(tmp_path))
+        args = Namespace(verbose=False)
+        with pytest.raises(SystemExit) as exc:
+            cli.cmd_gc(args)
+        assert exc.value.code == 1
+
+
+class TestCmdRequeueDirect:
+    """Test requeue with stuck messages."""
+
+    def test_requeue_stuck(self, tmp_path, monkeypatch, capsys):
+        monkeypatch.setattr(_core, "ABQ_HOME", tmp_path)
+        monkeypatch.setenv("ABQ_HOME", str(tmp_path))
+        _core.init()
+        _core.channel_create("rqch")
+        _core.send("rqch", "signal", "{}")
+        _core.recv("rqch")  # moves to processing
+        args = Namespace(verbose=True)
+        cli.cmd_requeue(args)
+        captured = capsys.readouterr()
+        assert "Requeued 1" in captured.out
+
+    def test_requeue_no_channels(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(_core, "ABQ_HOME", tmp_path)
+        monkeypatch.setenv("ABQ_HOME", str(tmp_path))
+        args = Namespace(verbose=False)
+        with pytest.raises(SystemExit) as exc:
+            cli.cmd_requeue(args)
+        assert exc.value.code == 1
+
+
+class TestCmdCheckDirect:
+    """Test check with stale/stuck messages."""
+
+    def test_check_with_stale(self, tmp_path, monkeypatch, capsys):
+        monkeypatch.setattr(_core, "ABQ_HOME", tmp_path)
+        monkeypatch.setenv("ABQ_HOME", str(tmp_path))
+        _core.init()
+        _core.channel_create("ckch")
+        _core.send("ckch", "signal", "{}", ttl=0)
+        args = Namespace(verbose=True)
+        with pytest.raises(SystemExit) as exc:
+            cli.cmd_check(args)
+        assert exc.value.code == 0
+        captured = capsys.readouterr()
+        assert "stale" in captured.out.lower() or "⚠" in captured.out
+
+    def test_check_with_stuck(self, tmp_path, monkeypatch, capsys):
+        monkeypatch.setattr(_core, "ABQ_HOME", tmp_path)
+        monkeypatch.setenv("ABQ_HOME", str(tmp_path))
+        _core.init()
+        _core.channel_create("stuckch")
+        _core.send("stuckch", "signal", "{}")
+        _core.recv("stuckch")  # moves to processing
+        args = Namespace(verbose=False)
+        with pytest.raises(SystemExit) as exc:
+            cli.cmd_check(args)
+        assert exc.value.code == 0
+        captured = capsys.readouterr()
+        assert "stuck" in captured.out.lower() or "processing" in captured.out.lower()

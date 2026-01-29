@@ -167,3 +167,64 @@ class TestMessageTypes:
         channel_create("typed-channel")
         msg = send("typed-channel", msg_type, "content")
         assert msg["type"] == msg_type
+
+
+class TestResolveAddress:
+    """Test _resolve_address for special addresses."""
+
+    def test_self_address(self):
+        from abq.core import _resolve_address
+
+        ctx = {"agent": "github.com/myorg/repo/main"}
+        assert _resolve_address("@self", ctx) == "github.com/myorg/repo/main"
+
+    def test_parent_address_non_worktree(self):
+        from abq.core import _resolve_address
+
+        ctx = {"agent": "github.com/myorg/repo/main"}
+        assert _resolve_address("@parent", ctx) == "github.com/myorg/repo/main"
+
+    def test_parent_address_worktree(self):
+        from abq.core import _resolve_address
+
+        ctx = {"agent": "github.com/myorg/repo/worktrees/feature-x"}
+        assert _resolve_address("@parent", ctx) == "github.com/myorg/repo/main"
+
+    def test_plain_address(self):
+        from abq.core import _resolve_address
+
+        ctx = {"agent": "anything"}
+        assert _resolve_address("my-channel", ctx) == "my-channel"
+
+
+class TestGitContext:
+    """Test get_git_context edge cases."""
+
+    def test_non_git_directory(self, tmp_path):
+        """Non-git directory returns local fallback."""
+        from abq.core import get_git_context
+
+        ctx = get_git_context(tmp_path)
+        assert ctx["remote"] == "local"
+        assert ctx["pwd"] == str(tmp_path)
+
+    def test_current_directory(self):
+        """Current directory (this repo) returns valid context."""
+        from abq.core import get_git_context
+
+        ctx = get_git_context()
+        assert "agent" in ctx
+        assert "branch" in ctx
+        assert ctx["remote"] != "local"
+
+
+class TestChannelListPreInit:
+    """Test channel_list before init."""
+
+    def test_channel_list_no_channels_dir(self, tmp_path, monkeypatch):
+        # Use a separate path that the autouse fixture didn't init
+        empty = tmp_path / "empty_home"
+        empty.mkdir()
+        monkeypatch.setattr(_core, "ABQ_HOME", empty)
+        result = channel_list()
+        assert result == []
