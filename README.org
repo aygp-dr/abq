@@ -128,6 +128,27 @@ See [[file:abq-spec.org][abq-spec.org]] for the full tangleable implementation i
 
 Efrit uses JSON messages with types: =eval=, =command=, =chat=, =status=. Other agents (Claude Code, Cursor) can interact via the [[https://modelcontextprotocol.io/][Model Context Protocol]] or directly via the filesystem queue.
 
+=abq= generalizes Efrit's single-queue design to multiple named channels with per-channel state directories:
+
+#+begin_src bash
+# Efrit: single queue at .efrit/queues/requests/
+# abq: named channels, each with full state machine
+abq channel create test-runner
+abq channel create app-agent
+
+ls ~/.abq/channels/
+# broadcast/  test-runner/  app-agent/
+
+# Each channel has the same structure as Efrit's queue
+ls ~/.abq/channels/test-runner/
+# requests/  processing/  responses/  archive/
+
+# abq shares Efrit's message types (plus "status")
+abq send test-runner eval 'print("hello from abq")'
+abq send test-runner command "run lint"
+abq send test-runner signal '{"signal": "tests_passed"}'
+#+end_src
+
 *** 2. Unix Spool Pattern
 
 The [[https://en.wikipedia.org/wiki/Spooling][spool directory pattern]] is a venerable Unix approach:
@@ -142,12 +163,52 @@ Key characteristics:
 - Lock files prevent double-pickup
 - No daemon required for submitters
 
+=abq= follows the spool pattern with directory-based state transitions instead of lock files:
+
+#+begin_src bash
+# Spool pattern: new/ → cur/ → done/
+# abq mapping:   requests/ → processing/ → archive/
+
+# Submit a job (like lpr submitting to the spool)
+abq send test-runner command "run full test suite"
+
+# Worker picks up the job (atomic rename, no lock file needed)
+abq recv test-runner
+# Message moves: requests/req_018d5a3b.json → processing/req_018d5a3b.json
+
+# Worker completes and responds (like moving to done/)
+abq respond test-runner req_018d5a3b --status success --result '{"passed": 64}'
+# Original moves: processing/ → archive/
+# Response written: responses/req_018d5a3b.json
+
+# FIFO ordering: messages sorted by timestamp in filename
+ls ~/.abq/channels/test-runner/requests/
+# req_018d5a3b2c4e.json  (oldest first)
+# req_018d5a3b4f71.json
+#+end_src
+
 *** 3. Maildir Format
 
 The [[https://en.wikipedia.org/wiki/Maildir][Maildir]] format (used by qmail, Dovecot) solves similar problems:
 - Atomic file creation (write to =tmp/=, rename to =new/=)
 - No locking required
 - Multiple readers safe
+
+=abq= uses the same atomic-rename trick that makes Maildir reliable:
+
+#+begin_src bash
+# Maildir: write to tmp/, rename to new/ (atomic delivery)
+# abq:     write to requests/ (atomic via rename), recv atomically renames to processing/
+
+# send() writes atomically — partial messages never visible to recv()
+abq send app-agent signal '{"signal": "deploy_ready"}'
+
+# recv() claims via atomic rename — two concurrent receivers never get the same message
+# Receiver A: rename requests/req_abc.json → processing/req_abc.json  ✓ (wins)
+# Receiver B: rename requests/req_abc.json → processing/req_abc.json  ✗ (FileNotFoundError, retries next)
+
+# Like Maildir, no advisory locks (flock/fcntl) needed — rename is the lock
+#+end_src
 
 ** Theoretical Foundations
 
@@ -159,16 +220,123 @@ The [[https://en.wikipedia.org/wiki/Actor_model][Actor Model]] (Hewitt, 1973) de
 - *State*: Private, mutable only by the actor
 - *Address*: How other actors find this one
 
+Each maps directly to =abq=:
+
+**** Mailbox → =requests/= directory
+
+Each channel's =requests/= directory is its mailbox. Messages queue as JSON files, ordered by timestamp:
+
+#+begin_src bash
+# Send two messages — they queue in the mailbox
+abq send test-runner signal '{"signal": "tests_passed", "count": 42}'
+abq send test-runner command "rerun flaky suite"
+
+# Inspect the mailbox directly
+ls ~/.abq/channels/test-runner/requests/
+# req_018d5a3b2c4e.json  req_018d5a3b4f71.json
+#+end_src
+
+**** Behavior → message handler
+
+The handler defines how the actor processes each message. This is a shell script, Python function, or any executable:
+
+#+begin_src bash
+# Handler script: my-handler.sh
+#!/bin/sh
+# $1 is the JSON message file
+TYPE=$(jq -r .type "$1")
+case "$TYPE" in
+  signal)  echo "Got signal: $(jq -r .content "$1")" ;;
+  command) eval "$(jq -r .content "$1")" ;;
+  eval)    python3 -c "$(jq -r .content "$1")" ;;
+  status)  echo '{"status": "alive"}' ;;
+esac
+
+# Attach behavior to an actor
+abq watch test-runner --handler ./my-handler.sh
+#+end_src
+
+**** State → channel directories + =processing/=
+
+Actor state is the contents of its channel directories. The =processing/= directory represents in-flight work — messages the actor has claimed but not yet completed:
+
+#+begin_src bash
+# Actor claims a message (atomic rename: requests/ → processing/)
+abq recv test-runner
+
+# State is visible via filesystem
+ls ~/.abq/channels/test-runner/
+# requests/    — pending mailbox
+# processing/  — in-flight (actor's private working state)
+# responses/   — completed replies
+# archive/     — finished messages
+
+# Or via the status command
+abq status
+# Channel test-runner: 0 requests, 1 processing, 3 responses, 12 archived
+#+end_src
+
+**** Address → =github.com/org/repo/branch=
+
+Actors are addressed by their git context. The =from= field in every message identifies the sender; the =to= field names the destination channel:
+
+#+begin_src bash
+# Send from repo A to an agent watching channel "app-agent"
+abq send app-agent signal '{"signal": "deploy_ready"}'
+
+# The message's "from" is auto-populated:
+# {
+#   "from": {
+#     "agent": "github.com/myorg/tests/main",
+#     "pid": 12345,
+#     "pwd": "/home/user/repos/tests"
+#   },
+#   "to": "app-agent"
+# }
+
+# Any process on the machine can address any channel by name
+abq send broadcast signal '{"signal": "all_clear"}'
+#+end_src
+
 From [[https://www.erlang.org/doc/design_principles/des_princ.html][Erlang OTP]]:
 - Lightweight processes (~300 bytes each)
 - Asynchronous message passing (no shared memory)
 - Supervision trees for fault tolerance
 - "Let it crash" philosophy
 
-The =abq= design maps directly:
-- Mailbox = =requests/= directory
-- Address = =github.com/org/repo/branch=
-- Supervision = external (systemd, supervisor script)
+=abq= agents follow OTP principles:
+
+#+begin_src bash
+# Lightweight processes — each agent is just a shell process watching a channel
+abq watch worker-1 --handler ./process-task.sh &   # PID 1001
+abq watch worker-2 --handler ./process-task.sh &   # PID 1002
+abq watch worker-3 --handler ./process-task.sh &   # PID 1003
+# Three agents, no shared memory, ~0 overhead when idle
+
+# Asynchronous message passing — send is fire-and-forget
+abq send worker-1 command "analyze dataset-a.csv"
+# Returns immediately; worker-1 processes asynchronously
+
+# Supervision — a supervisor script monitors workers and restarts on failure
+#!/bin/sh
+# supervisor.sh — "let it crash" with restart
+while true; do
+    abq send supervisor status '{}'
+    for worker in worker-1 worker-2 worker-3; do
+        # Check if worker process is alive
+        if ! abq check --channel "$worker" --alive; then
+            echo "Restarting $worker"
+            abq watch "$worker" --handler ./process-task.sh &
+        fi
+    done
+    sleep 10
+done
+
+# "Let it crash" — if a handler fails, the message stays in processing/
+# The supervisor (or gc) can requeue it for another worker:
+abq requeue worker-1
+# Moves stale processing/ messages back to requests/
+#+end_src
 
 *** IPC Patterns
 
@@ -183,6 +351,29 @@ From [[https://en.wikipedia.org/wiki/Inter-process_communication][IPC literature
 | Signals        | Kernel           | Simple notifications |
 
 Filesystem-based queues trade throughput for simplicity and debuggability.
+
+=abq= implements the Message Queue pattern using the filesystem as transport:
+
+#+begin_src bash
+# abq is a filesystem message queue — compare to the IPC patterns above:
+
+# Pipes (stdin/stdout) — linear, ephemeral, one producer → one consumer
+echo '{"test": true}' | my-agent
+
+# abq — async, persistent, many-to-many, decoupled
+abq send my-agent signal '{"test": true}'
+# Message persists on disk until consumed; sender doesn't block
+
+# The key advantage over pipes/sockets: debuggability
+# When something goes wrong, inspect the queue:
+cat ~/.abq/channels/my-agent/requests/req_018d5a3b2c4e.json | jq .
+# {
+#   "id": "req_018d5a3b2c4e",
+#   "type": "signal",
+#   "content": "{\"test\": true}",
+#   "timestamp": "2026-01-28T12:00:00Z"
+# }
+#+end_src
 
 *** Contract Net Protocol
 
@@ -213,7 +404,38 @@ abq send contractor-1 command "analyze /var/log/app.log"
 - *Topic-based*: Subscribe to named channels
 - *Content-based*: Subscribe to message patterns
 
-The =abqbroadcast= channel provides topic-based pub/sub. Content filtering happens in handlers.
+The =abq= =broadcast= channel provides topic-based pub/sub. Content filtering happens in handlers:
+
+#+begin_src bash
+# Topic-based: the broadcast channel is a built-in pub/sub topic
+# Any agent can publish to it
+abq send broadcast signal '{"signal": "build_complete", "version": "0.4.0"}'
+
+# Multiple subscribers watch the same broadcast channel
+# Each gets a copy (fan-out via polling/inotify)
+abq watch broadcast --handler ./deploy-on-build.sh &    # subscriber 1
+abq watch broadcast --handler ./notify-slack.sh &        # subscriber 2
+abq watch broadcast --handler ./update-dashboard.sh &    # subscriber 3
+
+# Content-based filtering: handlers inspect message content
+# deploy-on-build.sh only acts on build_complete signals:
+#!/bin/sh
+SIGNAL=$(jq -r '.content | fromjson | .signal' "$1")
+if [ "$SIGNAL" = "build_complete" ]; then
+    VERSION=$(jq -r '.content | fromjson | .version' "$1")
+    echo "Deploying $VERSION..."
+fi
+# Other signals are silently ignored
+
+# Named channels as topics: create per-concern channels
+abq channel create ci-events
+abq channel create deploy-events
+abq channel create alert-events
+
+# Producers publish to the relevant topic
+abq send ci-events signal '{"signal": "lint_passed"}'
+abq send deploy-events signal '{"signal": "rollback", "reason": "health check failed"}'
+#+end_src
 
 ** Why Filesystem Queues?
 
