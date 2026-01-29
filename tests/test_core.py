@@ -1,16 +1,10 @@
 """Tests for abq core functionality."""
 
 import json
-import os
-import tempfile
 
+import abq.core as _core
 import pytest
-
-# Set ABQ_HOME before importing
-_test_home = tempfile.mkdtemp(prefix="abq_test_")
-os.environ["ABQ_HOME"] = _test_home
-
-from abq import (  # noqa: E402
+from abq import (
     channel_create,
     channel_list,
     channel_remove,
@@ -23,13 +17,10 @@ from abq import (  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
-def setup_abq_home(tmp_path):
+def setup_abq_home(tmp_path, monkeypatch):
     """Set up a fresh ABQ_HOME for each test."""
-    os.environ["ABQ_HOME"] = str(tmp_path)
-    # Reimport to pick up new home
-    import abq.core
-
-    abq.core.ABQ_HOME = tmp_path
+    monkeypatch.setattr(_core, "ABQ_HOME", tmp_path)
+    monkeypatch.setenv("ABQ_HOME", str(tmp_path))
     init()
     yield tmp_path
 

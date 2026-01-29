@@ -1,17 +1,11 @@
 """Protocol regression tests — validate messages against JSON schemas."""
 
 import json
-import os
-import tempfile
 from pathlib import Path
 
+import abq.core as _core
 import pytest
-
-# Set ABQ_HOME before importing
-_test_home = tempfile.mkdtemp(prefix="abq_protocol_test_")
-os.environ["ABQ_HOME"] = _test_home
-
-from abq import channel_create, init, recv, respond, send  # noqa: E402
+from abq import channel_create, init, recv, respond, send
 
 SCHEMA_DIR = Path(__file__).parent.parent / "schemas"
 
@@ -90,12 +84,12 @@ def _validate(instance: dict, schema: dict) -> list[str]:
 
 
 @pytest.fixture(autouse=True)
-def setup_abq_home():
-    """Ensure ABQ is initialized for each test."""
-    home = Path(_test_home)
-    if not (home / "channels").exists():
-        init()
-    yield home
+def setup_abq_home(tmp_path, monkeypatch):
+    """Ensure ABQ is initialized with an isolated home for each test."""
+    monkeypatch.setattr(_core, "ABQ_HOME", tmp_path)
+    monkeypatch.setenv("ABQ_HOME", str(tmp_path))
+    init()
+    yield tmp_path
 
 
 class TestRequestSchema:

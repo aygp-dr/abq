@@ -207,6 +207,9 @@ class TestCmdLs:
 
     def test_ls_count(self, tmp_path, monkeypatch, capsys):
         """List with count."""
+        import abq.core as _core
+
+        monkeypatch.setattr(_core, "ABQ_HOME", tmp_path)
         monkeypatch.setenv("ABQ_HOME", str(tmp_path))
         ch_path = tmp_path / "channels" / "test-ch"
         ch_path.mkdir(parents=True)
