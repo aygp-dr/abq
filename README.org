@@ -116,7 +116,7 @@ See [[file:abq-spec.org][abq-spec.org]] for the full tangleable implementation i
 
 *** 1. Efrit (Emacs Agent)
 
-[[https://github.com/steveyegge/efrit][Efrit]] pioneered the file-based queue approach for AI agent communication:
+[[https://github.com/steveyegge/efrit][Efrit]] uses a file-based queue for AI agent communication:
 
 #+begin_example
 .efrit/queues/
