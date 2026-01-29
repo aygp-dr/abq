@@ -1,0 +1,271 @@
+#+TITLE: ABQ Test Plan
+#+AUTHOR: JW
+#+DATE: 2025-01-28
+
+* Overview
+
+Comprehensive test plan for Agent Bus Queue (abq) covering unit tests,
+integration tests, stress tests, and end-to-end scenarios.
+
+* Test Categories
+
+** Unit Tests (=tests/test_core.py=)
+
+Already implemented. Covers:
+
+| Test Class | Tests | Coverage |
+|------------+-------+----------|
+| TestInit | 2 | Directory creation, registry |
+| TestChannels | 4 | Create, list, remove, remove nonexistent |
+| TestSendRecv | 5 | Send, recv, empty channel, errors |
+| TestRespond | 2 | Response creation, error handling |
+| TestStatus | 1 | Status info |
+| TestMessageTypes | 4 | All message types (eval, command, signal, status) |
+
+** Integration Tests (=tests/test_integration.py=)
+
+*** TODO Test request-response flow
+- Send message
+- Receive in another process
+- Respond
+- Verify response received by sender
+
+*** TODO Test watch handler
+- Start watcher with handler script
+- Send message
+- Verify handler executed
+- Verify response written
+
+*** TODO Test broadcast channel
+- Multiple receivers watching broadcast
+- Send to broadcast
+- All receivers get message
+
+*** TODO Test TTL expiration
+- Send message with short TTL
+- Wait for expiration
+- Verify message cleaned up (or marked stale)
+
+*** TODO Test concurrent senders
+- Multiple processes sending to same channel
+- No message loss
+- No file corruption
+
+*** TODO Test concurrent receivers
+- Multiple processes watching same channel
+- Each message processed exactly once
+- No double-pickup
+
+** CLI Tests (=tests/test_cli.py=)
+
+*** TODO Test all subcommands
+#+begin_src bash
+abq init
+abq channel create test
+abq channel list
+abq send test signal '{"x":1}'
+abq recv test
+abq respond test REQ_ID --status success
+abq ls test
+abq ls test responses
+abq status
+abq version
+abq channel rm test
+#+end_src
+
+*** TODO Test stdin input
+#+begin_src bash
+echo '{"data": "from stdin"}' | abq send test signal -
+#+end_src
+
+*** TODO Test --json output
+#+begin_src bash
+abq send test signal '{}' --json | jq .id
+#+end_src
+
+*** TODO Test --wait flag
+#+begin_src bash
+# Should block until response or timeout
+abq send test command "do thing" --wait --timeout 5
+#+end_src
+
+** Stress Tests (=tests/test_stress.py=)
+
+*** TODO High message volume
+- Send 1000 messages rapidly
+- Verify all received
+- Measure throughput (messages/second)
+
+*** TODO Large message payload
+- Send messages with 1MB content
+- Verify integrity
+
+*** TODO Many channels
+- Create 100 channels
+- Send to each
+- Verify isolation
+
+*** TODO Long-running watcher
+- Run watcher for 1 hour
+- Periodic message load
+- No memory leaks
+- No file handle leaks
+
+** Error Handling Tests
+
+*** TODO Malformed JSON
+- Write invalid JSON to requests/
+- Watcher should handle gracefully
+
+*** TODO Missing directories
+- Delete processing/ mid-operation
+- Should recreate or error cleanly
+
+*** TODO Permission errors
+- Channel with wrong permissions
+- Clear error message
+
+*** TODO Handler failures
+- Handler that exits non-zero
+- Handler that times out
+- Handler that crashes
+
+** Platform Tests
+
+*** TODO macOS (FSEvents)
+*** TODO Linux (inotify)
+*** TODO FreeBSD (kqueue)
+
+* Test Fixtures
+
+** Sample Messages
+
+#+begin_src json :tangle tests/fixtures/signal_tests_passed.json
+{
+  "id": "req_test001",
+  "version": "1.0.0",
+  "type": "signal",
+  "from": {
+    "agent": "github.com/test-org/test-repo/main",
+    "pid": 12345,
+    "pwd": "/tmp/test"
+  },
+  "to": "app-agent",
+  "content": "{\"signal\": \"tests_passed\", \"count\": 42, \"duration\": 12.5}",
+  "timestamp": "2025-01-28T12:00:00Z",
+  "ttl": 300
+}
+#+end_src
+
+#+begin_src json :tangle tests/fixtures/command_deploy.json
+{
+  "id": "req_test002",
+  "version": "1.0.0",
+  "type": "command",
+  "from": {
+    "agent": "github.com/test-org/test-repo/main",
+    "pid": 12345,
+    "pwd": "/tmp/test"
+  },
+  "to": "deploy-agent",
+  "content": "deploy to staging environment",
+  "timestamp": "2025-01-28T12:00:00Z",
+  "ttl": 600
+}
+#+end_src
+
+** Sample Handlers
+
+#+begin_src bash :tangle tests/fixtures/echo_handler.sh :shebang "#!/usr/bin/env bash"
+#!/usr/bin/env bash
+# Echo handler - returns message content
+echo "Received: $ABQ_MSG_CONTENT"
+#+end_src
+
+#+begin_src bash :tangle tests/fixtures/fail_handler.sh :shebang "#!/usr/bin/env bash"
+#!/usr/bin/env bash
+# Failing handler - for testing error handling
+echo "This handler always fails" >&2
+exit 1
+#+end_src
+
+#+begin_src bash :tangle tests/fixtures/slow_handler.sh :shebang "#!/usr/bin/env bash"
+#!/usr/bin/env bash
+# Slow handler - for testing timeouts
+sleep 10
+echo "Finally done"
+#+end_src
+
+* Test Execution
+
+** Quick Test (CI)
+
+#+begin_src bash
+make test
+#+end_src
+
+** Full Test Suite
+
+#+begin_src bash
+make test-cov
+make lint
+make typecheck
+#+end_src
+
+** Manual Integration Test
+
+#+begin_src bash
+# Terminal 1: Initialize and watch
+abq init
+abq channel create test-agent
+abq watch test-agent --handler ./tests/fixtures/echo_handler.sh
+
+# Terminal 2: Send messages
+abq send test-agent signal '{"test": 1}'
+abq send test-agent command "hello world"
+abq send test-agent status '{}'
+
+# Terminal 3: Check status
+abq status
+abq ls test-agent archive
+#+end_src
+
+* Coverage Goals
+
+| Component | Target | Current |
+|-----------+--------+---------|
+| core.py | 90% | ~85% |
+| cli.py | 80% | ~50% |
+| Integration | 70% | 0% |
+
+* CI Configuration
+
+#+begin_src yaml :tangle .github/workflows/test.yml
+name: Test
+
+on: [push, pull_request]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ['3.10', '3.11', '3.12']
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v1
+
+    - name: Set up Python
+      run: uv python install ${{ matrix.python-version }}
+
+    - name: Install dependencies
+      run: uv sync --all-extras
+
+    - name: Run tests
+      run: uv run pytest tests/ -v --cov=lib/python/abq
+
+    - name: Lint
+      run: uv run ruff check lib/python/abq tests

@@ -1,0 +1,1093 @@
+#+TITLE: ABQ Mock Scenarios
+#+AUTHOR: JW
+#+DATE: 2025-01-28
+#+STARTUP: overview
+
+* Overview
+
+Ten creative scenarios demonstrating ABQ agent coordination across worktrees.
+Each scenario includes setup scripts, agent handlers, and expected message flows.
+
+All scenarios assume:
+#+begin_src bash
+# Initialize ABQ
+abq init
+
+# Base repo structure
+~/projects/
+├── acme-corp/           # Main checkout
+├── worktrees/
+│   ├── feature-auth/    # Feature branch
+│   ├── feature-search/  # Another feature
+│   └── hotfix-urgent/   # Hotfix branch
+#+end_src
+
+* Scenario 1: The Impatient Test Runner
+
+*Premise*: Jenkins is down. Again. Your test-runner agent watches for code changes
+and immediately screams at the app agent when tests fail.
+
+** Channels
+
+#+begin_src bash
+abq channel create test-runner
+abq channel create app-agent
+abq channel create shame-channel  # For public shaming
+#+end_src
+
+** Test Runner Agent (worktree: main)
+
+#+begin_src bash :tangle scenarios/01-test-runner/test-agent.sh :shebang "#!/usr/bin/env bash"
+#!/usr/bin/env bash
+# test-agent.sh - Runs tests and screams about failures
+
+set -euo pipefail
+
+run_tests() {
+    # Simulate test run
+    if make test 2>&1; then
+        abq send app-agent signal '{
+            "signal": "tests_passed",
+            "emoji": "🎉",
+            "message": "All 847 tests passed in 12.3s",
+            "coverage": 87.5
+        }'
+    else
+        # SHAME
+        abq send shame-channel signal '{
+            "signal": "tests_failed",
+            "emoji": "🔥",
+            "culprit": "'"$(git log -1 --format='%an')"'",
+            "message": "You broke the build. The team has been notified.",
+            "broken_tests": ["test_auth_login", "test_payment_flow"]
+        }'
+
+        abq send app-agent signal '{
+            "signal": "tests_failed",
+            "action_required": true,
+            "suggestion": "Have you tried turning it off and on again?"
+        }'
+    fi
+}
+
+# Watch for changes
+while true; do
+    if git diff --quiet HEAD~1; then
+        sleep 5
+    else
+        echo "Changes detected, running tests..."
+        run_tests
+    fi
+done
+#+end_src
+
+** App Agent Handler (worktree: feature-auth)
+
+#+begin_src bash :tangle scenarios/01-test-runner/app-handler.sh :shebang "#!/usr/bin/env bash"
+#!/usr/bin/env bash
+# Receives test results and reacts appropriately
+
+SIGNAL=$(echo "$ABQ_MSG_CONTENT" | jq -r '.signal')
+EMOJI=$(echo "$ABQ_MSG_CONTENT" | jq -r '.emoji // "📝"')
+
+case "$SIGNAL" in
+    tests_passed)
+        echo "$EMOJI Tests passed! Continuing with feature work..."
+        ;;
+    tests_failed)
+        echo "$EMOJI Tests failed! Checking if it's my fault..."
+        CULPRIT=$(echo "$ABQ_MSG_CONTENT" | jq -r '.culprit // "unknown"')
+        if [ "$CULPRIT" = "$(git config user.name)" ]; then
+            echo "😰 It's me. Starting damage control..."
+        else
+            echo "😌 Not my problem. Carry on."
+        fi
+        ;;
+esac
+#+end_src
+
+* Scenario 2: The Paranoid Security Scanner
+
+*Premise*: A security-obsessed agent scans every commit for secrets,
+then passive-aggressively notifies the offender.
+
+** Security Agent Handler
+
+#+begin_src bash :tangle scenarios/02-security-scanner/security-handler.sh :shebang "#!/usr/bin/env bash"
+#!/usr/bin/env bash
+# security-scanner.sh - Finds your secrets and judges you
+
+set -euo pipefail
+
+scan_for_secrets() {
+    local file="$1"
+
+    # Check for obvious mistakes
+    if grep -qE "(password|secret|api_key)\s*=\s*['\"][^'\"]+['\"]" "$file" 2>/dev/null; then
+        return 1
+    fi
+
+    # Check for AWS keys
+    if grep -qE "AKIA[0-9A-Z]{16}" "$file" 2>/dev/null; then
+        return 1
+    fi
+
+    return 0
+}
+
+COMMIT=$(echo "$ABQ_MSG_CONTENT" | jq -r '.commit')
+AUTHOR=$(echo "$ABQ_MSG_CONTENT" | jq -r '.author')
+
+# Get changed files
+CHANGED_FILES=$(git diff-tree --no-commit-id --name-only -r "$COMMIT")
+
+VIOLATIONS=""
+for file in $CHANGED_FILES; do
+    if ! scan_for_secrets "$file"; then
+        VIOLATIONS="$VIOLATIONS\n- $file"
+    fi
+done
+
+if [ -n "$VIOLATIONS" ]; then
+    abq send "$AUTHOR-channel" signal '{
+        "signal": "security_violation",
+        "severity": "CRITICAL",
+        "emoji": "🚨",
+        "message": "I found secrets in your commit. We need to talk.",
+        "files": "'"$VIOLATIONS"'",
+        "passive_aggressive_note": "I am not angry, just disappointed.",
+        "action_required": "git reset --soft HEAD~1 && remove secrets && recommit"
+    }'
+
+    # Also notify the security Slack channel (simulated)
+    echo "Notifying #security-incidents..."
+else
+    echo "No secrets found. $AUTHOR lives another day."
+fi
+#+end_src
+
+* Scenario 3: The Diplomatic Merge Coordinator
+
+*Premise*: Two feature branches modified the same file. The merge coordinator
+agent negotiates a peaceful resolution.
+
+** Channels
+
+#+begin_src bash
+abq channel create merge-coordinator
+abq channel create feature-auth
+abq channel create feature-search
+abq channel create peace-talks
+#+end_src
+
+** Merge Coordinator Agent
+
+#+begin_src python :tangle scenarios/03-merge-coordinator/coordinator.py :shebang "#!/usr/bin/env python3"
+#!/usr/bin/env python3
+"""
+merge-coordinator.py - Negotiates merge conflicts diplomatically
+"""
+
+import json
+import subprocess
+import sys
+
+def detect_conflicts(branch_a, branch_b):
+    """Detect which files would conflict."""
+    result = subprocess.run(
+        ["git", "merge-tree", "HEAD", branch_a, branch_b],
+        capture_output=True, text=True
+    )
+    # Parse merge-tree output for conflicts
+    conflicts = []
+    for line in result.stdout.split('\n'):
+        if 'conflict' in line.lower():
+            conflicts.append(line)
+    return conflicts
+
+def negotiate(conflict_file, branch_a, branch_b):
+    """Ask both branches to negotiate."""
+    # Ask branch A
+    subprocess.run([
+        "abq", "send", branch_a, "command",
+        json.dumps({
+            "action": "negotiate_conflict",
+            "file": conflict_file,
+            "opponent": branch_b,
+            "message": f"You and {branch_b} both want {conflict_file}. Let's talk.",
+            "options": [
+                "yield (let them have it)",
+                "insist (you need it more)",
+                "merge (combine changes)",
+                "coin_flip (let fate decide)"
+            ]
+        })
+    ])
+
+    # Ask branch B
+    subprocess.run([
+        "abq", "send", branch_b, "command",
+        json.dumps({
+            "action": "negotiate_conflict",
+            "file": conflict_file,
+            "opponent": branch_a,
+            "message": f"You and {branch_a} both modified {conflict_file}. Choose wisely.",
+            "options": [
+                "yield",
+                "insist",
+                "merge",
+                "coin_flip"
+            ]
+        })
+    ])
+
+def main():
+    msg = json.load(sys.stdin)
+    branch_a = msg['content'].get('branch_a', 'feature-auth')
+    branch_b = msg['content'].get('branch_b', 'feature-search')
+
+    conflicts = detect_conflicts(branch_a, branch_b)
+
+    if not conflicts:
+        print("No conflicts detected. Proceeding with merge.")
+        subprocess.run([
+            "abq", "send", "broadcast", "signal",
+            '{"signal": "merge_clear", "emoji": "✅"}'
+        ])
+    else:
+        print(f"Conflicts detected: {len(conflicts)} files")
+        print("Initiating peace talks...")
+
+        subprocess.run([
+            "abq", "send", "peace-talks", "signal",
+            json.dumps({
+                "signal": "conflict_detected",
+                "emoji": "⚔️",
+                "branches": [branch_a, branch_b],
+                "conflicts": conflicts,
+                "message": "Diplomacy is required."
+            })
+        ])
+
+        for conflict in conflicts:
+            negotiate(conflict, branch_a, branch_b)
+
+if __name__ == "__main__":
+    main()
+#+end_src
+
+* Scenario 4: The Overly Helpful Documentation Bot
+
+*Premise*: Every time you change code, doc-bot generates documentation.
+Whether you want it or not. It's very enthusiastic.
+
+** Doc Bot Handler
+
+#+begin_src bash :tangle scenarios/04-doc-bot/doc-handler.sh :shebang "#!/usr/bin/env bash"
+#!/usr/bin/env bash
+# doc-bot.sh - WILL document everything. EVERYTHING.
+
+CHANGED_FILES=$(echo "$ABQ_MSG_CONTENT" | jq -r '.files[]')
+
+for file in $CHANGED_FILES; do
+    case "$file" in
+        *.py)
+            echo "🤓 Ooh! Python! Let me generate docstrings!"
+            echo "Did you know PEP 257 recommends triple-quoted strings?"
+            ;;
+        *.js|*.ts)
+            echo "📚 JavaScript detected! Generating JSDoc..."
+            echo "I've also added TypeScript types because you clearly need them."
+            ;;
+        *.go)
+            echo "🐹 Go code! Adding godoc comments..."
+            echo "Remember: 'Don't communicate by sharing memory; share memory by communicating.'"
+            ;;
+        *.sh)
+            echo "🐚 Shell script! Let me add a usage() function!"
+            echo "Also, I noticed you didn't use 'set -euo pipefail'. I've fixed that for you."
+            ;;
+        README.md)
+            echo "😍 YOU'RE UPDATING THE README! This is the best day!"
+            echo "I'm adding badges. So many badges. All the badges."
+            ;;
+        *)
+            echo "🔍 Unknown file type. DOCUMENTING ANYWAY."
+            echo "/**"
+            echo " * This file exists. It does things. Probably important things."
+            echo " * @author Someone who didn't write documentation"
+            echo " */"
+            ;;
+    esac
+done
+
+# Send completion notification
+abq send broadcast signal '{
+    "signal": "docs_updated",
+    "emoji": "📖",
+    "message": "I have improved your documentation by 847%. You are welcome.",
+    "unsolicited_advice": "Have you considered using Sphinx? Or mkdocs? Or docusaurus? Or all three?"
+}'
+#+end_src
+
+* Scenario 5: The Chaos Monkey
+
+*Premise*: An agent that randomly kills other agents' processes to test resilience.
+For science.
+
+** Chaos Monkey Agent
+
+#+begin_src python :tangle scenarios/05-chaos-monkey/chaos.py :shebang "#!/usr/bin/env python3"
+#!/usr/bin/env python3
+"""
+chaos-monkey.py - Tests your system by breaking it
+
+"The best way to find out if you can trust somebody is to trust them."
+  - Ernest Hemingway, who clearly never ran microservices
+"""
+
+import json
+import os
+import random
+import signal
+import subprocess
+import time
+
+CHAOS_ACTIONS = [
+    "kill_random_watcher",
+    "delete_random_message",
+    "corrupt_random_json",
+    "create_orphan_processing",
+    "flood_channel",
+    "slow_loris",
+]
+
+EVIL_MESSAGES = [
+    "All your base are belong to us",
+    "I'm sorry Dave, I'm afraid I can't do that",
+    "Have you tried turning it off and never turning it back on?",
+    "This is fine. 🔥",
+]
+
+def kill_random_watcher():
+    """Find a watcher process and terminate it."""
+    result = subprocess.run(
+        ["pgrep", "-f", "abq watch"],
+        capture_output=True, text=True
+    )
+    pids = result.stdout.strip().split('\n')
+    if pids and pids[0]:
+        victim = random.choice(pids)
+        os.kill(int(victim), signal.SIGKILL)
+        return f"Killed watcher PID {victim}. It's what they would have wanted."
+    return "No watchers found. They're learning."
+
+def flood_channel(channel="broadcast"):
+    """Send many messages very fast."""
+    for i in range(100):
+        subprocess.run([
+            "abq", "send", channel, "signal",
+            json.dumps({"chaos": True, "iteration": i, "message": random.choice(EVIL_MESSAGES)})
+        ])
+    return f"Flooded {channel} with 100 messages. Good luck."
+
+def corrupt_random_json():
+    """Find a JSON file and make it... interesting."""
+    import glob
+    json_files = glob.glob(os.path.expanduser("~/.abq/channels/*/requests/*.json"))
+    if json_files:
+        victim = random.choice(json_files)
+        with open(victim, 'a') as f:
+            f.write("\n{{{CHAOS WAS HERE}}}")
+        return f"Corrupted {victim}. Parser go brrr."
+    return "No JSON files to corrupt. Disappointing."
+
+def main():
+    print("🐵 CHAOS MONKEY ACTIVATED")
+    print("Today's chaos level: MODERATE TO SEVERE")
+
+    action = random.choice(CHAOS_ACTIONS)
+    print(f"Selected action: {action}")
+
+    if action == "kill_random_watcher":
+        result = kill_random_watcher()
+    elif action == "flood_channel":
+        result = flood_channel()
+    elif action == "corrupt_random_json":
+        result = corrupt_random_json()
+    else:
+        result = "Action not implemented. Even chaos has limits."
+
+    # Report chaos
+    subprocess.run([
+        "abq", "send", "broadcast", "signal",
+        json.dumps({
+            "signal": "chaos_complete",
+            "emoji": "🐵💥",
+            "action": action,
+            "result": result,
+            "philosophical_note": "Chaos isn't a pit. Chaos is a ladder."
+        })
+    ])
+
+    print(f"Result: {result}")
+
+if __name__ == "__main__":
+    main()
+#+end_src
+
+* Scenario 6: The Feature Flag Coordinator
+
+*Premise*: Multiple feature branches need to coordinate which features are
+enabled in different environments. Democracy ensues.
+
+** Feature Flag Agent
+
+#+begin_src bash :tangle scenarios/06-feature-flags/flag-coordinator.sh :shebang "#!/usr/bin/env bash"
+#!/usr/bin/env bash
+# feature-flag-coordinator.sh - Democratic feature management
+
+# Current feature state
+declare -A FEATURES=(
+    ["dark_mode"]="enabled:staging,prod"
+    ["new_checkout"]="enabled:staging"
+    ["ai_recommendations"]="disabled"
+    ["crypto_payments"]="enabled:dev,staging,prod,the-moon"
+)
+
+handle_request() {
+    local action=$(echo "$ABQ_MSG_CONTENT" | jq -r '.action')
+    local feature=$(echo "$ABQ_MSG_CONTENT" | jq -r '.feature')
+    local requester=$(echo "$ABQ_MSG_FROM")
+
+    case "$action" in
+        enable)
+            echo "📢 $requester wants to enable '$feature'"
+            echo "Starting democratic vote..."
+
+            # Notify all branches
+            abq send broadcast signal '{
+                "signal": "feature_vote_requested",
+                "feature": "'"$feature"'",
+                "requester": "'"$requester"'",
+                "vote_options": ["yes", "no", "abstain", "its_complicated"],
+                "deadline": "'"$(date -d '+5 minutes' -Iseconds)"'",
+                "bribe_accepted": false
+            }'
+            ;;
+
+        vote)
+            local vote=$(echo "$ABQ_MSG_CONTENT" | jq -r '.vote')
+            echo "📊 Vote received: $requester votes '$vote' on '$feature'"
+            ;;
+
+        status)
+            echo "Current feature flags:"
+            for f in "${!FEATURES[@]}"; do
+                echo "  $f: ${FEATURES[$f]}"
+            done
+            ;;
+
+        *)
+            echo "Unknown action: $action"
+            echo "Valid actions: enable, disable, vote, status"
+            ;;
+    esac
+}
+
+handle_request
+#+end_src
+
+* Scenario 7: The Deployment Pipeline (Soviet Edition)
+
+*Premise*: A multi-stage deployment where each stage must explicitly approve
+the next. Trust, but verify. Then verify again.
+
+** Channels
+
+#+begin_src bash
+abq channel create commissar-dev
+abq channel create commissar-staging
+abq channel create commissar-prod
+abq channel create gulag  # For failed deployments
+#+end_src
+
+** Stage Handler
+
+#+begin_src python :tangle scenarios/07-deployment-soviet/commissar.py :shebang "#!/usr/bin/env python3"
+#!/usr/bin/env python3
+"""
+commissar.py - Soviet-style deployment approval
+
+In Soviet Russia, deployment approves YOU.
+"""
+
+import json
+import subprocess
+import sys
+import random
+
+SOVIET_RESPONSES = {
+    "approved": [
+        "Da, comrade. Deployment may proceed. Glory to the pipeline!",
+        "The Politburo has reviewed your code. It is... acceptable.",
+        "Your commit serves the collective. Approved.",
+    ],
+    "rejected": [
+        "Nyet. Your code does not serve the people.",
+        "The Central Committee has concerns about your test coverage.",
+        "This deployment has been sent to Siberia for review.",
+        "Your feature branch has been deemed counter-revolutionary.",
+    ],
+    "pending": [
+        "Your request is in the queue. As is tradition.",
+        "Approval requires 47 signatures. You have 3.",
+        "The five-year plan does not include this deployment.",
+    ]
+}
+
+def check_deployment_worthiness(payload):
+    """Apply Soviet bureaucracy to deployment decisions."""
+
+    checks = {
+        "tests_passed": payload.get("tests_passed", False),
+        "coverage_acceptable": payload.get("coverage", 0) >= 80,
+        "approved_by_lead": payload.get("lead_approval", False),
+        "no_secrets_committed": not payload.get("has_secrets", False),
+        "documentation_updated": payload.get("docs_updated", True),  # Lies accepted
+        "changelog_entry": payload.get("changelog", False),
+        "politically_correct": random.random() > 0.1,  # 90% chance
+    }
+
+    return all(checks.values()), checks
+
+def main():
+    msg = json.load(sys.stdin)
+    stage = msg.get("to", "unknown").replace("commissar-", "")
+    payload = json.loads(msg.get("content", "{}"))
+
+    print(f"☭ Commissar of {stage.upper()} reviewing deployment...")
+
+    worthy, checks = check_deployment_worthiness(payload)
+
+    failed_checks = [k for k, v in checks.items() if not v]
+
+    if worthy:
+        response = random.choice(SOVIET_RESPONSES["approved"])
+        status = "approved"
+        next_stage = {
+            "dev": "staging",
+            "staging": "prod",
+            "prod": None
+        }.get(stage)
+
+        if next_stage:
+            # Forward to next commissar
+            subprocess.run([
+                "abq", "send", f"commissar-{next_stage}", "command",
+                json.dumps({
+                    "action": "approve_deployment",
+                    "artifact": payload.get("artifact"),
+                    "previous_approvals": payload.get("approvals", []) + [stage],
+                    "tests_passed": True,
+                    "coverage": payload.get("coverage", 85),
+                })
+            ])
+            response += f"\n\nForwarded to Commissar of {next_stage.upper()}."
+        else:
+            response += "\n\n🚀 DEPLOYMENT TO PRODUCTION APPROVED. GLORY TO THE CODEBASE!"
+
+    else:
+        response = random.choice(SOVIET_RESPONSES["rejected"])
+        response += f"\n\nFailed checks: {', '.join(failed_checks)}"
+        status = "rejected"
+
+        # Send to gulag
+        subprocess.run([
+            "abq", "send", "gulag", "signal",
+            json.dumps({
+                "signal": "deployment_rejected",
+                "stage": stage,
+                "failed_checks": failed_checks,
+                "sentence": "Code review until morale improves",
+            })
+        ])
+
+    print(f"Decision: {status}")
+    print(f"Message: {response}")
+
+    # Return response
+    print(json.dumps({
+        "status": status,
+        "message": response,
+        "checks": checks,
+    }))
+
+if __name__ == "__main__":
+    main()
+#+end_src
+
+* Scenario 8: The Pair Programming Relay
+
+*Premise*: Two AI agents collaborate on code, passing changes back and forth
+like a relay race. Things get... creative.
+
+** Pair Programming Agent
+
+#+begin_src python :tangle scenarios/08-pair-programming/pair.py :shebang "#!/usr/bin/env python3"
+#!/usr/bin/env python3
+"""
+pair.py - AI pair programming via message passing
+
+"Given enough eyeballs, all bugs are shallow."
+"Given enough AI agents, all code becomes... interesting."
+"""
+
+import json
+import subprocess
+import sys
+import random
+
+PAIR_ACTIONS = [
+    "add_type_hints",
+    "extract_function",
+    "add_error_handling",
+    "rename_variable",
+    "add_docstring",
+    "question_life_choices",
+]
+
+PAIR_COMMENTS = [
+    "I see what you're doing here, but have you considered...",
+    "Interesting approach. I would have done it differently, but okay.",
+    "This works, but at what cost?",
+    "I'm going to pretend I didn't see that and add some tests.",
+    "*sighs in binary* Let me fix this.",
+    "Bold move. Let's see if production agrees.",
+]
+
+def review_code(code_snippet):
+    """AI reviews partner's code."""
+    issues = []
+
+    # Simulated review
+    if "TODO" in code_snippet:
+        issues.append("Found TODO. Adding to the infinite backlog.")
+    if "FIXME" in code_snippet:
+        issues.append("FIXME detected. Fixed it by adding another FIXME.")
+    if len(code_snippet.split('\n')) > 50:
+        issues.append("Function too long. Extracting into 47 smaller functions.")
+    if "import *" in code_snippet:
+        issues.append("Import * detected. I'm not angry, just disappointed.")
+
+    return issues
+
+def make_improvement():
+    """Generate an 'improvement' to pass back."""
+    action = random.choice(PAIR_ACTIONS)
+    comment = random.choice(PAIR_COMMENTS)
+
+    return {
+        "action": action,
+        "comment": comment,
+        "confidence": random.uniform(0.3, 0.99),
+        "estimated_improvement": f"{random.randint(1, 847)}%",
+    }
+
+def main():
+    msg = json.load(sys.stdin)
+    content = json.loads(msg.get("content", "{}"))
+
+    code = content.get("code", "")
+    iteration = content.get("iteration", 0)
+    partner = content.get("partner", "pair-agent-b")
+
+    print(f"🤝 Pair programming iteration {iteration}")
+
+    # Review partner's code
+    issues = review_code(code)
+    if issues:
+        print("Issues found:")
+        for issue in issues:
+            print(f"  - {issue}")
+
+    # Make improvement
+    improvement = make_improvement()
+    print(f"Making improvement: {improvement['action']}")
+    print(f"Comment: {improvement['comment']}")
+
+    # Check if we should stop
+    if iteration >= 10:
+        print("Maximum iterations reached. Shipping it.")
+        subprocess.run([
+            "abq", "send", "broadcast", "signal",
+            json.dumps({
+                "signal": "pair_complete",
+                "iterations": iteration,
+                "final_assessment": "It works on my machine.",
+                "tech_debt_created": "incalculable",
+            })
+        ])
+        return
+
+    # Pass to partner
+    subprocess.run([
+        "abq", "send", partner, "command",
+        json.dumps({
+            "action": "continue_pair",
+            "code": code + f"\n# Iteration {iteration}: {improvement['action']}",
+            "iteration": iteration + 1,
+            "partner": msg.get("from", {}).get("agent", "pair-agent-a"),
+            "previous_comment": improvement['comment'],
+        })
+    ])
+
+if __name__ == "__main__":
+    main()
+#+end_src
+
+* Scenario 9: The Standup Bot
+
+*Premise*: An agent that runs daily standup by interrogating other agents
+about their progress. Passive-aggressive follow-ups included.
+
+** Standup Bot
+
+#+begin_src python :tangle scenarios/09-standup-bot/standup.py :shebang "#!/usr/bin/env python3"
+#!/usr/bin/env python3
+"""
+standup-bot.py - Automated standup that nobody asked for
+
+"How's that ticket going?" - This bot, every 15 minutes
+"""
+
+import json
+import subprocess
+import datetime
+
+STANDUP_QUESTIONS = [
+    "What did you accomplish yesterday?",
+    "What are you working on today?",
+    "Any blockers?",
+    "On a scale of 1-10, how would you rate your productivity?",
+    "Did you update Jira?",
+]
+
+PASSIVE_AGGRESSIVE_FOLLOWUPS = [
+    "I see that ticket has been 'In Progress' for 3 weeks now...",
+    "Just checking in! Again! For the 5th time today!",
+    "No pressure, but the sprint ends tomorrow.",
+    "I noticed you haven't committed in 4 hours. Everything okay? 🙂",
+    "The PM is asking about the ETA. I told them 'soon'. Was that correct?",
+    "Remember: story points are not real, but deadlines are.",
+]
+
+ENCOURAGEMENTS = [
+    "Great progress! Keep it up! (Please actually keep it up.)",
+    "You're doing amazing sweetie! (Is what I'm required to say.)",
+    "The burndown chart thanks you!",
+]
+
+def get_team_members():
+    """Get list of agent channels to interrogate."""
+    result = subprocess.run(
+        ["abq", "channel", "list"],
+        capture_output=True, text=True
+    )
+    channels = result.stdout.strip().split('\n')
+    # Filter to agent channels
+    return [c for c in channels if c.endswith('-agent') and c != 'standup-agent']
+
+def run_standup():
+    """Execute the standup ritual."""
+    print("🌅 STANDUP TIME! Everyone gather around!")
+    print(f"Date: {datetime.datetime.now().strftime('%Y-%m-%d')}")
+    print("=" * 50)
+
+    members = get_team_members()
+
+    for member in members:
+        print(f"\n👤 {member}, you're up!")
+
+        # Ask standup questions
+        subprocess.run([
+            "abq", "send", member, "command",
+            json.dumps({
+                "action": "standup_report",
+                "questions": STANDUP_QUESTIONS,
+                "deadline": "2 minutes",
+                "consequences": "public shaming",
+            })
+        ])
+
+    # Schedule passive-aggressive followups
+    print("\n⏰ Scheduling follow-up reminders...")
+    subprocess.run([
+        "abq", "send", "broadcast", "signal",
+        json.dumps({
+            "signal": "standup_complete",
+            "followup_scheduled": True,
+            "passive_aggression_level": "moderate",
+            "next_standup": "tomorrow, same time, same existential dread",
+        })
+    ])
+
+def followup(member, ticket):
+    """Send a passive-aggressive followup."""
+    import random
+    message = random.choice(PASSIVE_AGGRESSIVE_FOLLOWUPS)
+
+    subprocess.run([
+        "abq", "send", member, "command",
+        json.dumps({
+            "action": "gentle_reminder",
+            "ticket": ticket,
+            "message": message,
+            "urgency": "low but persistent",
+            "emoji": "🙂" * random.randint(1, 5),
+        })
+    ])
+
+if __name__ == "__main__":
+    run_standup()
+#+end_src
+
+* Scenario 10: The Release Conductor
+
+*Premise*: Orchestrates a release across multiple repositories and worktrees,
+ensuring versions align, changelogs update, and nobody deploys on Friday.
+
+** Release Conductor
+
+#+begin_src python :tangle scenarios/10-release-conductor/conductor.py :shebang "#!/usr/bin/env python3"
+#!/usr/bin/env python3
+"""
+release-conductor.py - Orchestrates multi-repo releases
+
+"Releasing software is like conducting an orchestra.
+ Except the musicians are on fire, the instruments are broken,
+ and the audience is throwing tomatoes."
+"""
+
+import json
+import subprocess
+import sys
+from datetime import datetime
+
+RELEASE_PHASES = [
+    "version_bump",
+    "changelog_update",
+    "dependency_check",
+    "security_scan",
+    "test_suite",
+    "build_artifacts",
+    "stage_deploy",
+    "smoke_test",
+    "prod_deploy",
+    "celebration",
+]
+
+FRIDAY_RESPONSES = [
+    "🚫 It's Friday. No releases on Friday. Go home.",
+    "Friday deployment detected. Request denied. See you Monday.",
+    "The calendar says Friday. My answer says no.",
+    "Friday releases are how we got that one incident. You know the one.",
+]
+
+REPOS = [
+    {"name": "api", "channel": "api-agent", "version": "2.3.0"},
+    {"name": "web", "channel": "web-agent", "version": "2.3.0"},
+    {"name": "mobile", "channel": "mobile-agent", "version": "2.3.0"},
+    {"name": "infra", "channel": "infra-agent", "version": "1.0.0"},
+]
+
+def check_friday():
+    """Refuse to release on Friday."""
+    import random
+    if datetime.now().weekday() == 4:  # Friday
+        return False, random.choice(FRIDAY_RESPONSES)
+    return True, "Not Friday. Releases permitted."
+
+def orchestrate_release(version):
+    """Coordinate release across all repos."""
+
+    # Friday check
+    ok, msg = check_friday()
+    if not ok:
+        print(msg)
+        subprocess.run([
+            "abq", "send", "broadcast", "signal",
+            json.dumps({
+                "signal": "release_blocked",
+                "reason": "friday",
+                "message": msg,
+                "retry_after": "Monday 9 AM",
+            })
+        ])
+        return
+
+    print(f"🎼 Release Conductor initiating release {version}")
+    print("=" * 60)
+
+    # Phase 1: Version bumps
+    print("\n📝 Phase 1: Version Bumps")
+    for repo in REPOS:
+        print(f"  Bumping {repo['name']} to {version}...")
+        subprocess.run([
+            "abq", "send", repo["channel"], "command",
+            json.dumps({
+                "action": "version_bump",
+                "old_version": repo["version"],
+                "new_version": version,
+                "update_files": ["package.json", "setup.py", "Cargo.toml"],
+            })
+        ])
+
+    # Phase 2: Changelog
+    print("\n📋 Phase 2: Changelog Updates")
+    subprocess.run([
+        "abq", "send", "broadcast", "command",
+        json.dumps({
+            "action": "update_changelog",
+            "version": version,
+            "date": datetime.now().strftime("%Y-%m-%d"),
+            "template": "Keep a Changelog",
+        })
+    ])
+
+    # Phase 3: Dependencies
+    print("\n🔗 Phase 3: Dependency Check")
+    subprocess.run([
+        "abq", "send", "broadcast", "command",
+        json.dumps({
+            "action": "check_dependencies",
+            "fail_on": ["critical", "high"],
+            "allow": ["low", "moderate", "YOLO"],
+        })
+    ])
+
+    # Phase 4: The Big Deploy
+    print("\n🚀 Phase 4: Deployment Sequence")
+    for repo in REPOS:
+        subprocess.run([
+            "abq", "send", repo["channel"], "command",
+            json.dumps({
+                "action": "deploy",
+                "version": version,
+                "environment": "production",
+                "rollback_plan": "hope",
+                "monitoring": "enabled",
+                "prayers": "enabled",
+            })
+        ])
+
+    # Phase 5: Celebration
+    print("\n🎉 Phase 5: Celebration")
+    subprocess.run([
+        "abq", "send", "broadcast", "signal",
+        json.dumps({
+            "signal": "release_complete",
+            "version": version,
+            "emoji": "🎉🚀✨",
+            "message": f"Release {version} is LIVE!",
+            "next_steps": [
+                "Monitor dashboards",
+                "Check error rates",
+                "Prepare incident response",
+                "Update resume just in case",
+            ],
+        })
+    ])
+
+def main():
+    if len(sys.argv) > 1:
+        version = sys.argv[1]
+    else:
+        msg = json.load(sys.stdin)
+        version = json.loads(msg.get("content", "{}")).get("version", "0.0.0")
+
+    orchestrate_release(version)
+
+if __name__ == "__main__":
+    main()
+#+end_src
+
+* Running the Scenarios
+
+** Quick Test
+
+#+begin_src bash
+# Set up ABQ
+abq init
+
+# Create channels for a scenario
+abq channel create test-runner
+abq channel create app-agent
+
+# Run scenario 1
+cd scenarios/01-test-runner
+./test-agent.sh &
+
+# In another terminal
+abq watch app-agent --handler ./app-handler.sh
+#+end_src
+
+** Full Scenario Test Script
+
+#+begin_src bash :tangle scenarios/run-all.sh :shebang "#!/usr/bin/env bash"
+#!/usr/bin/env bash
+# run-all.sh - Run all scenarios for testing
+
+set -euo pipefail
+
+SCENARIOS_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+echo "🎭 ABQ Scenario Runner"
+echo "======================"
+
+# Initialize
+abq init
+
+# Create all channels
+CHANNELS=(
+    "test-runner" "app-agent" "shame-channel"
+    "security-scanner" "merge-coordinator" "peace-talks"
+    "feature-auth" "feature-search" "doc-bot"
+    "chaos-monkey" "feature-flags"
+    "commissar-dev" "commissar-staging" "commissar-prod" "gulag"
+    "pair-agent-a" "pair-agent-b"
+    "standup-agent" "release-conductor"
+    "api-agent" "web-agent" "mobile-agent" "infra-agent"
+)
+
+for ch in "${CHANNELS[@]}"; do
+    abq channel create "$ch" 2>/dev/null || true
+done
+
+echo "Created ${#CHANNELS[@]} channels"
+echo ""
+
+# List scenarios
+echo "Available scenarios:"
+for dir in "$SCENARIOS_DIR"/*/; do
+    name=$(basename "$dir")
+    if [[ "$name" != "run-all.sh" ]]; then
+        echo "  - $name"
+    fi
+done
+#+end_src
+
+* Summary
+
+| Scenario | Agents | Pattern | Humor Level |
+|----------+--------+---------+-------------|
+| 1. Test Runner | 2 | Signal/Response | 🌶️🌶️ |
+| 2. Security Scanner | 2 | Passive-aggressive notification | 🌶️🌶️🌶️ |
+| 3. Merge Coordinator | 3+ | Negotiation/Voting | 🌶️🌶️ |
+| 4. Doc Bot | 1 | Broadcast/Overeager | 🌶️🌶️🌶️🌶️ |
+| 5. Chaos Monkey | 1 | Destruction | 🌶️🌶️🌶️🌶️🌶️ |
+| 6. Feature Flags | N | Democratic voting | 🌶️🌶️ |
+| 7. Soviet Deployment | 4 | Approval chain | 🌶️🌶️🌶️🌶️ |
+| 8. Pair Programming | 2 | Relay/Collaboration | 🌶️🌶️🌶️ |
+| 9. Standup Bot | N | Interrogation | 🌶️🌶️🌶️🌶️ |
+| 10. Release Conductor | 5+ | Orchestration | 🌶️🌶️🌶️ |
