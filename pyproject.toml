@@ -27,6 +27,9 @@ classifiers = [
 abq = "abq.cli:main"
 
 [project.optional-dependencies]
+inotify = [
+    "pyinotify>=0.9.6",
+]
 dev = [
     "pytest>=8.0",
     "pytest-cov>=4.0",
