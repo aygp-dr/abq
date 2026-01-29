@@ -168,9 +168,8 @@ ssh hydrabos 'cd ~/ghq/github.com/aygp-dr/abq && uv run abq init && \
       \"version\": \"15.0-RELEASE\", \"from_host\": \"hydra\", \
       \"from_os\": \"FreeBSD 14.3\"}"'
 
-# 4. Transfer message file from hydra to nexus
-scp hydrabos:~/.abq/channels/nexus-reports/requests/req_*.json \
-    ~/.abq/channels/nexus-reports/requests/
+# 4. Sync messages from hydra to nexus (rsync is idempotent)
+rsync -avz hydrabos:~/.abq/channels/ ~/.abq/channels/
 
 # 5. On nexus: receive and verify
 uv run abq recv nexus-reports
