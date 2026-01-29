@@ -201,18 +201,25 @@ docs/%.svg: docs/%.dot
 dot-tangle: tangle dot-render ## Tangle org then render dot files
 
 #---------------------------------------------------------------------------
-# Remote Sync
+# Remote Sync (configure REMOTE_HOST in .env)
 #---------------------------------------------------------------------------
 
-REMOTE_HOST ?= hydrabos
+-include .env
 
-sync-down: ## Pull channels from remote host (REMOTE_HOST=hydrabos)
+.env: .env.template
+	cp .env.template .env
+	@echo "Created .env from template. Edit it to set REMOTE_HOST."
+
+sync-down: ## Pull channels from remote host
+	@test -n "$(REMOTE_HOST)" || { echo "Error: REMOTE_HOST not set. Copy .env.template to .env and configure." >&2; exit 1; }
 	$(UV) run abq sync-remote $(REMOTE_HOST) down -v
 
-sync-up: ## Push channels to remote host (REMOTE_HOST=hydrabos)
+sync-up: ## Push channels to remote host
+	@test -n "$(REMOTE_HOST)" || { echo "Error: REMOTE_HOST not set. Copy .env.template to .env and configure." >&2; exit 1; }
 	$(UV) run abq sync-remote $(REMOTE_HOST) up -v
 
-sync-both: ## Bidirectional sync with remote host (REMOTE_HOST=hydrabos)
+sync-both: ## Bidirectional sync with remote host
+	@test -n "$(REMOTE_HOST)" || { echo "Error: REMOTE_HOST not set. Copy .env.template to .env and configure." >&2; exit 1; }
 	$(UV) run abq sync-remote $(REMOTE_HOST) both -v
 
 #---------------------------------------------------------------------------
