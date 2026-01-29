@@ -90,12 +90,13 @@ def _get_channel_path(channel: str) -> Path:
 def _resolve_address(addr: str, context: dict) -> str:
     """Resolve special addresses like @self, @parent."""
     if addr == "@self":
-        return context["agent"]
+        return str(context["agent"])
     if addr == "@parent":
-        parts = context["agent"].split("/worktrees/")
+        agent = str(context["agent"])
+        parts = agent.split("/worktrees/")
         if len(parts) > 1:
             return parts[0] + "/main"
-        return context["agent"]
+        return agent
     return addr
 
 
@@ -221,7 +222,7 @@ def recv(
 
         if messages:
             msg_file = messages[0]
-            msg = json.loads(msg_file.read_text())
+            msg: dict = json.loads(msg_file.read_text())
 
             # Move to processing
             processing_file = processing_dir / msg_file.name

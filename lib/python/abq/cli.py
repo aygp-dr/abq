@@ -32,7 +32,7 @@ def wait_for_response(channel: str, msg_id: str, timeout: int = 30) -> dict | No
     while time.time() - start < timeout:
         response_file = responses_dir / f"{msg_id}.json"
         if response_file.exists():
-            response = json.loads(response_file.read_text())
+            response: dict = json.loads(response_file.read_text())
             archive_dir = channel_path / "archive"
             archive_dir.mkdir(exist_ok=True)
             response_file.rename(archive_dir / f"{msg_id}_response.json")
