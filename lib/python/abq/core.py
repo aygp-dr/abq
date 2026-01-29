@@ -219,15 +219,17 @@ def recv(channel: str, wait: bool = False, timeout: int = 30) -> dict | None:
     while True:
         messages = sorted(requests_dir.glob("*.json"))
 
-        if messages:
-            msg_file = messages[0]
-            msg: dict = json.loads(msg_file.read_text())
-
-            # Move to processing
-            processing_file = processing_dir / msg_file.name
-            msg_file.rename(processing_file)
-
-            return msg
+        for msg_file in messages:
+            try:
+                # Atomic rename first — whoever wins the rename owns the message
+                processing_file = processing_dir / msg_file.name
+                msg_file.rename(processing_file)
+                # Read from processing (we own it now)
+                msg: dict = json.loads(processing_file.read_text())
+                return msg
+            except (FileNotFoundError, OSError):
+                # Another receiver got this message first, try next
+                continue
 
         if not wait:
             return None
