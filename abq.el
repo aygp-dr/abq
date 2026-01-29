@@ -60,9 +60,23 @@
         (dolist (w warnings)
           (message "%s:%d: %s" file (car w) (cadr w)))))))
 
-;;; Graphviz (for dot files in org)
+;;; Graphviz / Dot babel support
+;;
+;; Enables:
+;;   - C-c C-c to evaluate dot blocks inline (ob-dot)
+;;   - :comments link on dot blocks for bidirectional tangle/detangle
+;;     (maps dot → c-mode which provides // comment syntax)
+;;   - :file output for PNG/SVG generation
 
-(add-to-list 'org-src-lang-modes '("dot" . graphviz-dot))
+(require 'ob-dot)
+
+(add-to-list 'org-babel-load-languages '(dot . t))
+(org-babel-do-load-languages 'org-babel-load-languages org-babel-load-languages)
+
+;; Map dot to c-mode for comment syntax (needed by :comments link).
+;; graphviz-dot-mode is not always available; c-mode provides // comments
+;; which org-babel uses for link markers in tangled .dot files.
+(add-to-list 'org-src-lang-modes '("dot" . c))
 
 (provide 'abq)
 ;;; abq.el ends here
