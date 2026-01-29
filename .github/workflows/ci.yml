@@ -52,17 +52,15 @@ jobs:
         run: |
           uv run pytest tests/ -v \
             --cov=lib/python/abq \
+            --cov-branch \
             --cov-report=term-missing \
             --cov-report=xml
 
       - name: Upload coverage to Codecov
         if: matrix.python-version == '3.12'
-        uses: codecov/codecov-action@v4
+        uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
-          files: ./coverage.xml
-          fail_ci_if_error: false
-          verbose: true
 
   typecheck:
     runs-on: ubuntu-latest
