@@ -31,14 +31,45 @@ if _PLATFORM == "FreeBSD":
 def _has_inotify() -> bool:
     """Check if inotify is available (Linux or FreeBSD 15+)."""
     if _PLATFORM == "Linux":
-        return True
+        # Try inotify.adapters first, then pyinotify
+        try:
+            import inotify.adapters  # noqa: F401
+            return True
+        except ImportError:
+            pass
+        try:
+            import pyinotify  # noqa: F401
+            return True
+        except ImportError:
+            return False
     if _PLATFORM == "FreeBSD" and _FREEBSD_VERSION and _FREEBSD_VERSION >= 15:
+        # FreeBSD uses pyinotify with libinotify
+        try:
+            import pyinotify  # noqa: F401
+            return True
+        except ImportError:
+            pass
         try:
             import inotify.adapters  # noqa: F401
             return True
         except ImportError:
             return False
     return False
+
+
+def _get_inotify_backend() -> str:
+    """Determine which inotify library is available."""
+    try:
+        import inotify.adapters  # noqa: F401
+        return "inotify.adapters"
+    except ImportError:
+        pass
+    try:
+        import pyinotify  # noqa: F401
+        return "pyinotify"
+    except ImportError:
+        pass
+    return "none"
 
 
 def _has_watchdog() -> bool:
@@ -98,6 +129,18 @@ class FileWatcher:
 
     def _watch_inotify(self, callback: Optional[Callable[[Path], None]] = None):
         """Watch using inotify (Linux, FreeBSD 15+)."""
+        backend = _get_inotify_backend()
+
+        if backend == "inotify.adapters":
+            yield from self._watch_inotify_adapters(callback)
+        elif backend == "pyinotify":
+            yield from self._watch_pyinotify(callback)
+        else:
+            # Fallback to polling if no inotify available
+            yield from self._watch_polling(callback)
+
+    def _watch_inotify_adapters(self, callback: Optional[Callable[[Path], None]] = None):
+        """Watch using inotify.adapters library."""
         import inotify.adapters
 
         i = inotify.adapters.Inotify()
@@ -116,6 +159,43 @@ class FileWatcher:
                             yield filepath
         finally:
             i.remove_watch(str(self.directory))
+
+    def _watch_pyinotify(self, callback: Optional[Callable[[Path], None]] = None):
+        """Watch using pyinotify library (FreeBSD 15+ with libinotify)."""
+        import pyinotify
+        import queue
+
+        file_queue: queue.Queue[Path] = queue.Queue()
+
+        class EventHandler(pyinotify.ProcessEvent):
+            def process_IN_CREATE(self, event):
+                if event.pathname.endswith(".json"):
+                    file_queue.put(Path(event.pathname))
+
+            def process_IN_MOVED_TO(self, event):
+                if event.pathname.endswith(".json"):
+                    file_queue.put(Path(event.pathname))
+
+        wm = pyinotify.WatchManager()
+        handler = EventHandler()
+        notifier = pyinotify.ThreadedNotifier(wm, handler)
+        notifier.start()
+
+        mask = pyinotify.IN_CREATE | pyinotify.IN_MOVED_TO
+        wm.add_watch(str(self.directory), mask)
+
+        try:
+            while True:
+                try:
+                    filepath = file_queue.get(timeout=self.poll_interval)
+                    if callback:
+                        callback(filepath)
+                    else:
+                        yield filepath
+                except queue.Empty:
+                    continue
+        finally:
+            notifier.stop()
 
     def _watch_watchdog(self, callback: Optional[Callable[[Path], None]] = None):
         """Watch using watchdog (kqueue on BSD/macOS, inotify on Linux)."""
@@ -176,6 +256,7 @@ def get_watcher_info() -> dict:
         "platform": _PLATFORM,
         "freebsd_version": _FREEBSD_VERSION,
         "has_inotify": _has_inotify(),
+        "inotify_backend": _get_inotify_backend(),
         "has_watchdog": _has_watchdog(),
         "recommended_backend": FileWatcher(Path("."))._select_backend(),
     }
