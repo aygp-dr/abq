@@ -336,7 +336,7 @@ def cmd_check(args):
     if channels_dir.exists():
         checks_passed += 1
         if args.verbose:
-            print(f"✓ Channels directory exists")
+            print("✓ Channels directory exists")
     else:
         warnings.append("No channels directory (run 'abq init')")
 
@@ -371,7 +371,7 @@ def cmd_check(args):
     if stale_count == 0:
         checks_passed += 1
         if args.verbose:
-            print(f"✓ No stale messages")
+            print("✓ No stale messages")
     else:
         warnings.append(f"{stale_count} stale message(s) past TTL")
 
@@ -388,7 +388,7 @@ def cmd_check(args):
     if stuck_count == 0:
         checks_passed += 1
         if args.verbose:
-            print(f"✓ No stuck messages in processing")
+            print("✓ No stuck messages in processing")
     else:
         warnings.append(f"{stuck_count} message(s) stuck in processing")
 
@@ -399,13 +399,13 @@ def cmd_check(args):
             json.loads(registry.read_text())
             checks_passed += 1
             if args.verbose:
-                print(f"✓ Registry is valid JSON")
+                print("✓ Registry is valid JSON")
         except json.JSONDecodeError as e:
             issues.append(f"Registry JSON invalid: {e}")
     else:
         checks_passed += 1  # registry is optional
         if args.verbose:
-            print(f"✓ No registry (optional)")
+            print("✓ No registry (optional)")
 
     # Summary
     print()
