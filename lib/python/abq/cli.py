@@ -313,6 +313,118 @@ def cmd_sync_remote(args):
             print("Push complete.")
 
 
+def cmd_check(args):
+    """Run health checks on the agent bus."""
+    from datetime import datetime, timezone
+
+    issues = []
+    warnings = []
+    checks_passed = 0
+
+    # Check 1: ABQ home exists
+    abq_home = Path(os.environ.get("ABQ_HOME", os.path.expanduser("~/.abq")))
+    if abq_home.exists():
+        checks_passed += 1
+        if args.verbose:
+            print(f"✓ ABQ home exists: {abq_home}")
+    else:
+        issues.append(f"ABQ home not found: {abq_home} (run 'abq init')")
+
+    # Check 2: Channels directory
+    channels_dir = abq_home / "channels"
+    if channels_dir.exists():
+        checks_passed += 1
+        if args.verbose:
+            print(f"✓ Channels directory exists")
+    else:
+        warnings.append("No channels directory (run 'abq init')")
+
+    # Check 3: Check for stale messages
+    stale_count = 0
+    now = datetime.now(timezone.utc)
+    if channels_dir.exists():
+        for channel_dir in channels_dir.iterdir():
+            if not channel_dir.is_dir():
+                continue
+            requests_dir = channel_dir / "requests"
+            processing_dir = channel_dir / "processing"
+
+            for msg_dir in [requests_dir, processing_dir]:
+                if not msg_dir.exists():
+                    continue
+                for msg_file in msg_dir.glob("*.json"):
+                    try:
+                        msg = json.loads(msg_file.read_text())
+                        ts = msg.get("timestamp", "")
+                        ttl = msg.get("ttl", 300)
+                        if ts:
+                            msg_time = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                            age = (now - msg_time).total_seconds()
+                            if age > ttl:
+                                stale_count += 1
+                                if args.verbose:
+                                    print(f"  ⚠ Stale: {msg['id']} ({int(age)}s > {ttl}s TTL)")
+                    except Exception:
+                        pass
+
+    if stale_count == 0:
+        checks_passed += 1
+        if args.verbose:
+            print(f"✓ No stale messages")
+    else:
+        warnings.append(f"{stale_count} stale message(s) past TTL")
+
+    # Check 4: Stuck in processing
+    stuck_count = 0
+    if channels_dir.exists():
+        for channel_dir in channels_dir.iterdir():
+            if not channel_dir.is_dir():
+                continue
+            processing_dir = channel_dir / "processing"
+            if processing_dir.exists():
+                stuck_count += len(list(processing_dir.glob("*.json")))
+
+    if stuck_count == 0:
+        checks_passed += 1
+        if args.verbose:
+            print(f"✓ No stuck messages in processing")
+    else:
+        warnings.append(f"{stuck_count} message(s) stuck in processing")
+
+    # Check 5: Registry exists (optional)
+    registry = abq_home / "registry.json"
+    if registry.exists():
+        try:
+            json.loads(registry.read_text())
+            checks_passed += 1
+            if args.verbose:
+                print(f"✓ Registry is valid JSON")
+        except json.JSONDecodeError as e:
+            issues.append(f"Registry JSON invalid: {e}")
+    else:
+        checks_passed += 1  # registry is optional
+        if args.verbose:
+            print(f"✓ No registry (optional)")
+
+    # Summary
+    print()
+    total_checks = checks_passed + len(issues)
+    if issues:
+        print(f"✗ {len(issues)} issue(s):")
+        for issue in issues:
+            print(f"  • {issue}")
+    if warnings:
+        print(f"⚠ {len(warnings)} warning(s):")
+        for warning in warnings:
+            print(f"  • {warning}")
+    if not issues and not warnings:
+        print(f"✓ All {checks_passed} checks passed")
+    else:
+        print(f"\n{checks_passed}/{total_checks} checks passed")
+
+    sys.exit(1 if issues else 0)
+
+
 def cmd_version(args):
     """Show version."""
     print(f"abq {__version__}")
@@ -409,6 +521,11 @@ Examples:
     p_sync.add_argument("--delete", action="store_true", help="Delete extraneous files on receiver")
     p_sync.add_argument("--verbose", "-v", action="store_true", help="Show rsync output")
     p_sync.set_defaults(func=cmd_sync_remote)
+
+    # check
+    p_check = subparsers.add_parser("check", help="Run health checks")
+    p_check.add_argument("--verbose", "-v", action="store_true", help="Show all checks")
+    p_check.set_defaults(func=cmd_check)
 
     # version
     p_version = subparsers.add_parser("version", help="Show version")
