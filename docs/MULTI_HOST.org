@@ -1,0 +1,168 @@
+#+TITLE: ABQ Multi-Host Messaging
+#+DATE: 2026-01-28
+
+* The Problem
+
+ABQ is filesystem-based. Cross-machine messaging requires bridging the gap.
+
+#+begin_example
+nexus (FreeBSD 15)          hydra (FreeBSD 14)
+┌─────────────────┐        ┌─────────────────┐
+│ ~/.abq/         │   ?    │ ~/.abq/         │
+│   channels/     │ ────── │   channels/     │
+│     nexus-rpt/  │        │     nexus-rpt/  │
+└─────────────────┘        └─────────────────┘
+#+end_example
+
+* Solutions
+
+** Option 1: SSH + Remote Execution (Simplest)
+
+From nexus, execute abq on hydra:
+
+#+begin_src bash
+# nexus → hydra: send message by running abq remotely
+ssh hydra 'cd ~/ghq/github.com/aygp-dr/abq && \
+  uv run abq send nexus-reports signal \
+  "{\"signal\": \"test_complete\", \"host\": \"nexus\"}"'
+#+end_src
+
+Pros: Simple, no file transfer
+Cons: Requires SSH access, latency
+
+** Option 2: SCP Message Files (What We Did)
+
+Write message locally, copy to remote:
+
+#+begin_src bash
+# On nexus: send locally first
+uv run abq send nexus-reports signal '{"signal": "test"}'
+
+# Copy the message file to hydra
+scp ~/.abq/channels/nexus-reports/requests/req_*.json \
+    hydra:~/.abq/channels/nexus-reports/requests/
+#+end_src
+
+Pros: Works with any transport (rsync, scp, usb stick)
+Cons: Two-step process, need to manage file cleanup
+
+** Option 3: Shared Filesystem (NFS/SSHFS)
+
+Mount remote ABQ directory:
+
+#+begin_src bash
+# On nexus: mount hydra's ~/.abq
+sshfs hydra:~/.abq ~/.abq-hydra
+
+# Send directly to hydra's queue
+ABQ_HOME=~/.abq-hydra abq send nexus-reports signal '{"from": "nexus"}'
+#+end_src
+
+Pros: Transparent, feels local
+Cons: Network dependency, mount management
+
+** Option 4: Rsync Sync (Batch)
+
+Periodically sync queues:
+
+#+begin_src bash
+# Cron job: sync outbox to remote inbox
+*/1 * * * * rsync -a ~/.abq/outbox/ hydra:~/.abq/channels/nexus-reports/requests/
+#+end_src
+
+Pros: Handles offline, batches efficiently
+Cons: Not real-time, complexity
+
+** Option 5: ABQ Bridge Daemon (Future)
+
+A small daemon that watches local outbox and forwards via SSH:
+
+#+begin_src python
+# Hypothetical future feature
+abq bridge hydra --channel nexus-reports
+#+end_src
+
+* Tested Scenario: nexus → hydra
+
+** Setup
+
+| Host | OS | ABQ Role |
+|------+----+----------|
+| hydra | FreeBSD 14.3 | Receiver (agent listening) |
+| nexus | FreeBSD 15.0 | Sender (test results) |
+
+** What Happened
+
+1. Agent on nexus tried to send message to hydra
+2. Message went to nexus's LOCAL ~/.abq (oops!)
+3. Agent realized the mistake
+4. Used SCP to copy message file to hydra
+5. Agent on hydra successfully received it
+
+** Actual Commands Run
+
+#+begin_src bash
+# On nexus: accidentally sent locally
+uv run abq send nexus-reports signal '{"signal": "freebsd15_test", ...}'
+# Output: Sent: req_019c0764eed8e146bcc5ec -> nexus-reports
+# But this went to nexus's filesystem!
+
+# Discovery: check hydra's queue
+ssh hydra 'ls ~/.abq/channels/nexus-reports/requests/*.json'
+# Found a different message (from earlier)
+
+# Fix: copy the message to hydra
+scp ~/.abq/channels/nexus-reports/requests/req_019c0764eed8e146bcc5ec.json \
+    hydra:~/.abq/channels/nexus-reports/requests/
+
+# On hydra: receive it
+uv run abq recv nexus-reports
+# ID: req_019c0764eed8e146bcc5ec
+# Type: signal
+# From: github.com/aygp-dr/abq/main
+# Content: {"signal": "freebsd15_test", "pyinotify": true, ...}
+#+end_src
+
+** Lesson Learned
+
+ABQ is explicitly LOCAL-FIRST. Multi-host requires explicit transport.
+
+This is a FEATURE, not a bug:
+- No hidden network dependencies
+- Works offline
+- Debuggable (it's just files)
+- You choose the transport that fits your security model
+
+* Recommended Pattern for Multi-Host
+
+#+begin_src bash
+#!/bin/bash
+# ~/bin/abq-remote - send to remote ABQ instance
+# Usage: abq-remote hydra channel-name signal '{"data": "here"}'
+
+REMOTE_HOST="$1"
+CHANNEL="$2"
+MSG_TYPE="$3"
+CONTENT="$4"
+
+ssh "$REMOTE_HOST" "cd ~/ghq/github.com/aygp-dr/abq && \
+  uv run abq send '$CHANNEL' '$MSG_TYPE' '$CONTENT'"
+#+end_src
+
+Then:
+
+#+begin_src bash
+abq-remote hydra nexus-reports signal '{"test": "passed", "host": "nexus"}'
+#+end_src
+
+* When to Use NATS Instead
+
+If you need:
+- Real-time cross-machine messaging
+- Multiple subscribers
+- Message persistence across network
+- Pub/sub patterns at scale
+
+Then ABQ isn't the right tool. Use [[https://nats.io/][NATS]] (single binary, easy to run).
+
+ABQ is for: same-machine agent coordination where debuggability > latency.
