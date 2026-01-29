@@ -7,7 +7,7 @@ PYTHON ?= python3
 ORG_FILES := $(wildcard *.org) $(wildcard **/*.org)
 TANGLE_TARGET := abq-spec.org
 
-.PHONY: all help dev test lint clean install dot-render dot-tangle
+.PHONY: all help dev test lint clean install dot-render dot-tangle detangle
 
 all: lint test ## Run lint and tests
 
@@ -42,14 +42,27 @@ typecheck: ## Type check with mypy
 	$(UV) run mypy lib/python/abq
 
 #---------------------------------------------------------------------------
-# Org-mode Tangling
+# Org-mode Tangling (bidirectional)
+#
+# Workflow:
+#   abq-spec.org ──tangle──▶ docs/*.dot, ~/.local/bin/abq*, ...
+#                ◀─detangle── (requires :comments link on src blocks)
+#
+# The org file is the single source of truth. Tangled files are generated.
+# If you edit a tangled file directly, run `gmake detangle` to sync changes
+# back into abq-spec.org before committing. The pre-commit hook warns if
+# generated files are staged without a corresponding org source change.
+#
+# Full rebuild:  gmake tangle dot-render
+# Round-trip:    gmake tangle dot-render detangle
 #---------------------------------------------------------------------------
 
-tangle: ## Tangle all code blocks from agent-bus-spec.org
+tangle: ## Tangle all code blocks from abq-spec.org
 	@echo "Tangling $(TANGLE_TARGET)..."
 	$(EMACS) --batch \
 		--eval "(require 'org)" \
 		--eval "(setq org-confirm-babel-evaluate nil)" \
+		--eval "(add-to-list 'org-src-lang-modes '(\"dot\" . c))" \
 		--eval "(org-babel-tangle-file \"$(TANGLE_TARGET)\")"
 	@echo "Making scripts executable..."
 	chmod +x ~/.local/bin/abq* 2>/dev/null || true
@@ -57,6 +70,15 @@ tangle: ## Tangle all code blocks from agent-bus-spec.org
 	chmod +x ~/.local/share/abq/handlers/*.py 2>/dev/null || true
 	chmod +x ~/.local/share/abq/handlers/*.rb 2>/dev/null || true
 	@echo "Done. Run 'abq init' to initialize the agent bus."
+
+detangle: ## Detangle: sync edits from tangled files back into org source
+	@echo "Detangling back into $(TANGLE_TARGET)..."
+	$(EMACS) --batch \
+		--eval "(require 'org)" \
+		--eval "(setq org-confirm-babel-evaluate nil)" \
+		--visit="$(TANGLE_TARGET)" \
+		--eval "(org-babel-detangle)"
+	@echo "Detangle complete."
 
 tangle-dry: ## Show what would be tangled (dry run)
 	@echo "Files that would be created from $(TANGLE_TARGET):"

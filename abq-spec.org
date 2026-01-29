@@ -71,7 +71,7 @@ sequenceDiagram
 
 ** State Machine
 
-#+begin_src dot :file docs/abq-state-machine.png :tangle docs/abq-state-machine.dot :exports results
+#+begin_src dot :file docs/abq-state-machine.png :tangle docs/abq-state-machine.dot :comments link :exports results
 // ABQ Message State Machine
 // Lifecycle: requests → processing → responses + archive
 digraph abq_state_machine {

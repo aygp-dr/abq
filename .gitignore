@@ -34,6 +34,12 @@ htmlcov/
 *.html
 *.md.bak
 
+# Tangled/generated files (source of truth: abq-spec.org)
+# Run `gmake detangle` to sync edits back before committing org source
+docs/*.dot
+docs/*.png
+docs/*.svg
+
 # OS
 .DS_Store
 Thumbs.db
