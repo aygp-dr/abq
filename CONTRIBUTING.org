@@ -1,0 +1,110 @@
+#+TITLE: Contributing to ABQ
+#+AUTHOR: ABQ Contributors
+
+* Contributing
+
+Thank you for your interest in contributing to ABQ (Agent Bus Queue).
+
+** Getting Started
+
+#+begin_src bash
+git clone https://github.com/aygp-dr/abq
+cd abq
+uv venv && uv pip install -e ".[dev]"
+source .venv/bin/activate
+#+end_src
+
+** Development Workflow
+
+ABQ uses org-mode literate programming. The specification in =abq-spec.org= is the single source of truth.
+
+*** Tangle / Detangle
+
+#+begin_src bash
+# Tangle: org → source files
+gmake tangle
+
+# Render diagrams
+gmake dot-render
+
+# Detangle: sync edits from tangled files back to org
+gmake detangle
+#+end_src
+
+If you edit a tangled file directly (e.g. =docs/abq-state-machine.dot=), run =gmake detangle= before committing so changes propagate back to =abq-spec.org=.
+
+*** Quality Gates
+
+All of these must pass before submitting a PR:
+
+#+begin_src bash
+# Lint
+uv run ruff check lib/python/abq tests
+
+# Format check
+uv run ruff format --check lib/python/abq tests
+
+# Type check
+uv run mypy lib/python/abq --ignore-missing-imports
+
+# Tests
+uv run pytest tests/ -v
+#+end_src
+
+Or run lint and tests together:
+
+#+begin_src bash
+gmake lint test
+#+end_src
+
+*** Remote Sync (optional)
+
+If you work across multiple machines:
+
+#+begin_src bash
+cp .env.template .env
+# Edit .env to set REMOTE_HOST
+gmake sync-both
+#+end_src
+
+** Project Structure
+
+| Path | Description |
+|------+-------------|
+| =abq-spec.org= | Literate specification (single source of truth) |
+| =lib/python/abq/= | Python library |
+| =tests/= | pytest test suite |
+| =docs/= | Generated diagrams, ADRs, reviews |
+| =abq.el= | Emacs support package |
+| =Makefile= | Build targets (use =gmake= on FreeBSD) |
+
+** Commit Conventions
+
+We use [[https://www.conventionalcommits.org/][conventional commits]]:
+
+- =feat:= — new feature
+- =fix:= — bug fix
+- =docs:= — documentation
+- =refactor:= — code restructuring
+- =security:= — security improvements
+- =build:= — build system / CI
+
+** Issue Tracking
+
+ABQ uses =bd= (beads) for issue tracking:
+
+#+begin_src bash
+bd ready              # Find available work
+bd show <id>          # View issue details
+bd update <id> --status in_progress
+bd close <id>
+bd sync               # Sync with git
+#+end_src
+
+** Code of Conduct
+
+Be respectful. This is a small project; keep discussions technical and constructive.
+
+** License
+
+By contributing, you agree that your contributions will be licensed under the [[file:LICENSE][MIT License]].
